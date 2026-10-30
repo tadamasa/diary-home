@@ -146,3 +146,137 @@ svg.ic { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-wid
 .book__text { min-width: 0; }
 .book__note { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: var(--space-1); white-space: pre-line; }
 .ai-answer a { word-break: break-all; }
+
+/* ============================================================
+   空と紙(毎日開きたくなる見た目)
+   ============================================================ */
+:root {
+  --serif: "Hiragino Mincho ProN", "Hiragino Mincho Pro", "YuMincho", "Yu Mincho", "Noto Serif JP", serif;
+  --paper: #fffdf8;
+  --paper-rule: rgba(60, 80, 120, .09);
+  --moon-lit: #e2b23c;
+  --sky-a: #bfe0f5; --sky-b: #e8f3fa; --sky-ink: var(--color-label); --sky-sub: var(--color-label-secondary);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #1f1e1c; --paper-rule: rgba(255, 255, 255, .06); --moon-lit: #f3d98b; }
+}
+html[data-sky="dawn"] { --sky-a: #f3c4b8; --sky-b: #ece0f2; }
+html[data-sky="morning"] { --sky-a: #b9dcf4; --sky-b: #eaf4fb; }
+html[data-sky="noon"] { --sky-a: #92c8f0; --sky-b: #e4f1fb; }
+html[data-sky="dusk"] { --sky-a: #e9a07e; --sky-b: #f6dccb; }
+html[data-sky="night"] { --sky-a: #1b2750; --sky-b: #46588f; --sky-ink: #fff; --sky-sub: rgba(255, 255, 255, .78); }
+@media (prefers-color-scheme: dark) {
+  html[data-sky="dawn"] { --sky-a: #4a2f45; --sky-b: #2a2233; }
+  html[data-sky="morning"] { --sky-a: #163a57; --sky-b: #13202b; }
+  html[data-sky="noon"] { --sky-a: #12406a; --sky-b: #10202f; }
+  html[data-sky="dusk"] { --sky-a: #5a2e2a; --sky-b: #2a1c22; }
+  html[data-sky="night"] { --sky-a: #070b1f; --sky-b: #121a36; }
+}
+
+/* 時間帯で変わる空。ページの上に敷き、下へ溶かす */
+.sky {
+  position: absolute; left: 0; right: 0; top: 0; height: 340px; z-index: -1; pointer-events: none;
+  background: linear-gradient(to bottom, var(--sky-a), var(--sky-b) 60%, var(--bg-grouped));
+  transition: background 1s;
+}
+html[data-sky="night"] .sky::after {
+  content: ""; position: absolute; inset: 0 0 40% 0; opacity: .8;
+  background-image:
+    radial-gradient(1.2px 1.2px at 12% 22%, #fff, transparent), radial-gradient(1px 1px at 28% 48%, #fff, transparent),
+    radial-gradient(1.4px 1.4px at 44% 16%, #fff, transparent), radial-gradient(1px 1px at 63% 38%, #fff, transparent),
+    radial-gradient(1.2px 1.2px at 78% 12%, #fff, transparent), radial-gradient(1px 1px at 90% 44%, #fff, transparent),
+    radial-gradient(1px 1px at 55% 60%, #fff, transparent), radial-gradient(1.3px 1.3px at 8% 62%, #fff, transparent);
+}
+body { background-color: var(--bg-grouped); position: relative; isolation: isolate; }
+.nav--large:not(.is-collapsed) { background-color: transparent; border-color: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.nav--large:not(.is-collapsed)::after { display: none; }
+.nav--large:not(.is-collapsed) .nav__title-large, .nav--large:not(.is-collapsed) .nav__back { color: var(--sky-ink); }
+.nav__title-large { font-family: var(--serif); font-weight: 600; letter-spacing: .04em; }
+.nav__sub { display: flex; align-items: center; gap: 6px; margin: -4px 0 0; padding: 0 var(--space-4) var(--space-2); font-size: 14px; color: var(--sky-sub); transition: opacity var(--dur-fast) var(--ease-ios); }
+.nav__sub:empty { display: none; }
+.nav--large.is-collapsed .nav__sub { opacity: 0; height: 0; padding: 0; overflow: hidden; }
+.tab-warning { position: relative; }
+.moon { flex: none; }
+.moon__dark { fill: rgba(128, 128, 128, .28); }
+.moon__lit { fill: var(--moon-lit); }
+
+/* こころの色。--h(色相)と --r(濃さ 0〜1)を各要素に渡して使う */
+.orb, .cal__cell, .kind--feelings, .tag--feel, .paper, .entry, .day-head, .cx__dot {
+  --mood: hsl(var(--h, 40) calc(22% + var(--r, 0) * 33%) calc(87% - var(--r, 0) * 9%));
+  --mood-ink: hsl(var(--h, 40) calc(30% + var(--r, 0) * 40%) 40%);
+}
+@media (prefers-color-scheme: dark) {
+  .orb, .cal__cell, .kind--feelings, .tag--feel, .paper, .entry, .day-head, .cx__dot {
+    --mood: hsl(var(--h, 40) calc(18% + var(--r, 0) * 28%) calc(26% + var(--r, 0) * 8%));
+    --mood-ink: hsl(var(--h, 40) calc(45% + var(--r, 0) * 30%) 72%);
+  }
+}
+.orb { display: inline-block; flex: none; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.75), transparent 55%), var(--mood-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mood) 70%, transparent); transition: background .4s, box-shadow .4s; }
+.orb--none { background: transparent; box-shadow: none; border: 1.5px dashed var(--color-separator-opaque); box-sizing: border-box; }
+.sum-orb { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* 紙 */
+.paper { background-color: var(--paper); transition: box-shadow .4s; }
+.paper.has-mood { box-shadow: inset 4px 0 0 var(--mood-ink); }
+.paper .field--note {
+  font-family: var(--serif); font-size: 17px; line-height: 32px; min-height: 192px;
+  background-image: repeating-linear-gradient(to bottom, transparent 0 31px, var(--paper-rule) 31px 32px);
+  background-attachment: local; padding-top: 2px;
+}
+
+/* タグ: Feelingは自分の色、Thinkingは点線の輪郭 */
+.kind--feelings { background-color: color-mix(in srgb, var(--mood) 55%, var(--bg-grouped-secondary)); color: var(--color-label); transition: background-color .2s, transform .2s, color .2s; }
+.kind--feelings.is-active { background-color: var(--mood-ink); color: #fff; transform: scale(1.04); }
+@media (prefers-color-scheme: dark) { .kind--feelings.is-active { color: #111; } }
+.kind--thinkings { background: transparent; border: 1px dashed var(--color-separator-opaque); color: var(--color-label-secondary); }
+.kind--thinkings.is-active { border-style: solid; border-color: var(--color-accent); color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.tag--feel { background: color-mix(in srgb, var(--mood) 70%, transparent); color: var(--color-label); }
+.tag--think { background: transparent; border: 1px dashed var(--color-separator-opaque); }
+
+/* カレンダー: こころの色のモザイク */
+.cal { background-color: color-mix(in srgb, var(--bg-grouped-secondary) 88%, transparent); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+.cal__label { font-family: var(--serif); font-size: 19px; font-weight: 600; display: inline-flex; align-items: baseline; gap: 6px; }
+.cal__label small { font-family: var(--font-sans); font-size: 12px; font-weight: 400; color: var(--color-label-secondary); }
+.cal__grid { gap: 4px; }
+.cal__cell { border-radius: 12px; aspect-ratio: 1; max-width: none; font-size: 15px; transition: transform .15s, background-color .3s; }
+.cal__cell:active { transform: scale(.92); }
+.cal__cell.has-mood { background-color: var(--mood); }
+.cal__cell.has-record { background-color: var(--bg-fill-tertiary); }
+.cal__cell.has-mood::after, .cal__cell.has-record::after { display: none; }
+.cal__cell.is-today span { border-bottom: 2px solid var(--color-accent); line-height: 1.15; }
+.cal__cell.is-today { color: var(--color-label); }
+.cal__cell.is-future { color: var(--color-label-tertiary, var(--color-label-secondary)); }
+.cal__cell.is-selected { background-color: var(--mood, var(--bg-fill-tertiary)); color: var(--color-label); box-shadow: 0 0 0 2px var(--color-label); font-weight: 700; }
+.cal__cell.is-selected:not(.has-mood):not(.has-record) { background-color: transparent; }
+
+/* その日の見出し */
+.day-head { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-4) var(--space-4) 0; padding: var(--space-3) var(--space-4); border-radius: var(--r-card); }
+.day-head.has-mood { background: linear-gradient(120deg, color-mix(in srgb, var(--mood) 75%, transparent), transparent 85%); }
+.day-head__text { flex: 1; min-width: 0; }
+.day-head h2 { font-family: var(--serif); font-size: 21px; line-height: 28px; font-weight: 600; margin: 0; }
+.day-head p { margin: 2px 0 var(--space-2); color: var(--color-label-secondary); }
+.cx { flex: none; width: 76px; height: 76px; }
+.cx__ring { fill: none; stroke: var(--color-separator-opaque); stroke-width: 1; }
+.cx__axis { stroke: var(--color-separator); stroke-width: .8; }
+.cx__dot { fill: var(--mood-ink); stroke: var(--bg-grouped-secondary); stroke-width: 1.2; }
+.cx__mean { fill: var(--color-label); }
+
+/* その日の記録: 一本の糸でつなぐ */
+.thread { position: relative; padding: var(--space-2) var(--space-4) 0 var(--space-2); }
+.thread::before { content: ""; position: absolute; left: calc(var(--space-2) + 26px); top: 28px; bottom: 28px; width: 1.5px; background: linear-gradient(to bottom, transparent, var(--color-separator-opaque) 10%, var(--color-separator-opaque) 90%, transparent); }
+.entry { display: grid; grid-template-columns: 52px 1fr; gap: var(--space-2); margin-top: var(--space-3); margin-left: 0; }
+.entry__rail { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: var(--space-3); }
+.entry__rail .entry__time { margin: 0; font-size: 12px; font-weight: 600; color: var(--color-label-secondary); background: var(--bg-grouped); padding: 0 2px; }
+.orb--rail { width: 12px; height: 12px; }
+.entry__body.card { margin: 0; }
+.entry__text { margin: 0; font-family: var(--serif); font-size: 16.5px; line-height: 1.85; white-space: pre-wrap; word-break: break-word; }
+.entry .tags { margin-top: var(--space-2); }
+.entry .note__tools { margin-top: var(--space-2); gap: var(--space-1); flex-wrap: nowrap; }
+.entry .note__tools .btn { padding: 0 var(--space-3); font-size: 14px; white-space: nowrap; }
+.entry .note__tools .btn--plain { padding: 0 var(--space-2); }
+
+/* 保存したての記録は、インクがにじむように現れる */
+@keyframes ink { from { opacity: 0; filter: blur(6px); transform: translateY(10px); } to { opacity: 1; filter: none; transform: none; } }
+@keyframes glow { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--mood-ink) 60%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+.entry.is-new .entry__body { animation: ink .9s var(--ease-ios, ease-out) both; }
+.entry.is-new .orb--rail { animation: glow 1.4s ease-out .3s 2; }

@@ -2,6 +2,7 @@ import * as db from './db.js';
 import * as sync from './sync.js';
 import * as gemini from './gemini.js';
 import { exportData, importData } from './backup.js';
+import { moodOf, moodStyle, skyOf, SKY_LABEL, moonAge, moonName, moonPath, affectOf } from './mood.js';
 import { esc, today, nowTime, isDate, dateLabel, monthCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry } from './diary.js';
 
 // ---------- 状態 ----------
@@ -26,9 +27,10 @@ function toast(msg, ms = 2600) {
   setTimeout(() => el.remove(), ms);
 }
 
-function setTitle(text, { back = false } = {}) {
+function setTitle(text, { back = false, sub = '' } = {}) {
   document.getElementById('nav-title').textContent = text;
   document.getElementById('nav-title-large').textContent = text;
+  document.getElementById('nav-sub').innerHTML = sub;
   document.getElementById('back').hidden = !back;
   document.title = `${text} - 日記`;
 }
@@ -65,6 +67,43 @@ function watchSync(el) {
   show(sync.status);
 }
 
+// ---------- 空と月 ----------
+function moonSvg(date, size = 16) {
+  const age = moonAge(date);
+  return `<svg class="moon" width="${size}" height="${size}" viewBox="-11 -11 22 22" aria-hidden="true"><circle r="10" class="moon__dark"/><path d="${moonPath(age, 10)}" class="moon__lit"/></svg>`;
+}
+
+function daySub(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const at = new Date(y, m - 1, d, 21);
+  return `${moonSvg(at)}<span>${dateLabel(dateStr).replace(/^\d+年/, '')} ・ ${moonName(moonAge(at))}</span>`;
+}
+
+function applySky() {
+  document.documentElement.dataset.sky = skyOf();
+}
+
+// こころの色の小さな玉
+function orb(feelings, cls = '') {
+  const m = moodOf(feelings);
+  return `<span class="orb${m ? '' : ' orb--none'}${cls ? ` ${cls}` : ''}" style="${moodStyle(m)}" aria-hidden="true"></span>`;
+}
+
+// その日のFeelingを円環の上に置いた小さな図(右=快、上=高ぶり)
+function circumplex(feelings) {
+  const fs = [...new Set(feelings)];
+  if (!fs.length) return '';
+  const dots = fs.map(f => {
+    const [v, a] = affectOf(f);
+    const m = moodOf([f]);
+    return `<circle cx="${(v * 26).toFixed(1)}" cy="${(-a * 26).toFixed(1)}" r="4" style="${moodStyle(m)}" class="cx__dot"><title>${esc(f)}</title></circle>`;
+  }).join('');
+  const all = moodOf(fs);
+  return `<svg class="cx" viewBox="-34 -34 68 68" role="img" aria-label="この日のこころの位置: ${esc(fs.join('、'))}">
+    <circle r="30" class="cx__ring"/><path d="M-30 0H30M0 -30V30" class="cx__axis"/>
+    ${dots}<circle cx="${(all.v * 26).toFixed(1)}" cy="${(-all.a * 26).toFixed(1)}" r="2" class="cx__mean"/></svg>`;
+}
+
 // ---------- 記録 ----------
 let draftTimer = null;
 function saveDraft() {
@@ -90,7 +129,7 @@ function fillForm(e) {
 
 function chipsHtml(kind) {
   const set = form[kind];
-  return tagChoices(state.tags[kind], set).map(n => `<button type="button" class="kind${set.has(n) ? ' is-active' : ''}" data-kind="${kind}" data-tag="${esc(n)}" aria-pressed="${set.has(n)}">${esc(n)}</button>`).join('')
+  return tagChoices(state.tags[kind], set).map(n => `<button type="button" class="kind kind--${kind}${set.has(n) ? ' is-active' : ''}" data-kind="${kind}" data-tag="${esc(n)}" aria-pressed="${set.has(n)}"${kind === 'feelings' ? ` style="${moodStyle(moodOf([n]))}"` : ''}>${esc(n)}</button>`).join('')
     || '<p class="small muted" style="margin:0">タグはまだありません(設定で足せます)</p>';
 }
 
@@ -103,16 +142,18 @@ async function renderWrite(arg) {
     const d = await db.getMeta('draft');
     if (d && (d.text || '').trim()) { Object.assign(form, d, { feelings: new Set(d.feelings), thinkings: new Set(d.thinkings) }); } else resetForm();
   }
-  setTitle(form.id ? '記録を直す' : '記録', { back: !!form.id });
+  const sky = skyOf();
+  const fdate = (form.datetime || '').slice(0, 10);
+  setTitle(form.id ? '記録を直す' : `${SKY_LABEL[sky]}の記録`, { back: !!form.id, sub: isDate(fdate) ? daySub(fdate) : '' });
   const count = k => form[k].size ? ` ${form[k].size}` : '';
   $view.innerHTML = `
     <div class="card record">
       <div class="row"><label for="dt">日時</label><input id="dt" type="datetime-local" value="${esc(form.datetime)}"></div>
     </div>
-    <div class="card" style="margin-top:var(--space-3)">
+    <div class="card paper" id="paper" style="margin-top:var(--space-3);${moodStyle(moodOf([...form.feelings]))}">
       <textarea id="text" class="field field--note" placeholder="現在の意識を言語化…" aria-label="日記の本文">${esc(form.text)}</textarea>
     </div>
-    <details class="fold" id="fold-f"><summary>Feeling<small id="cnt-feelings">${count('feelings')}</small></summary><div class="fold__body"><div class="kinds" style="padding-top:0">${chipsHtml('feelings')}</div></div></details>
+    <details class="fold" id="fold-f"><summary><span class="sum-orb">${orb([...form.feelings])}Feeling</span><small id="cnt-feelings">${count('feelings')}</small></summary><div class="fold__body"><div class="kinds" style="padding-top:0">${chipsHtml('feelings')}</div></div></details>
     <details class="fold" id="fold-t"><summary>Thinking<small id="cnt-thinkings">${count('thinkings')}</small></summary><div class="fold__body"><div class="kinds" style="padding-top:0">${chipsHtml('thinkings')}</div></div></details>
     <div class="actions">
       ${form.id || form.text ? '<button class="btn btn--tinted" id="cancel">取消</button>' : ''}
@@ -124,7 +165,12 @@ async function renderWrite(arg) {
 
   const text = document.getElementById('text');
   text.addEventListener('input', () => { form.text = text.value; saveDraft(); });
-  document.getElementById('dt').addEventListener('change', e => { form.datetime = e.target.value; saveDraft(); });
+  document.getElementById('dt').addEventListener('change', e => {
+    form.datetime = e.target.value;
+    if (isDate(form.datetime.slice(0, 10))) document.getElementById('nav-sub').innerHTML = daySub(form.datetime.slice(0, 10));
+    saveDraft();
+  });
+  document.getElementById('paper').classList.toggle('has-mood', form.feelings.size > 0);
   $view.querySelectorAll('[data-tag]').forEach(b => b.addEventListener('click', () => {
     const set = form[b.dataset.kind];
     const n = b.dataset.tag;
@@ -132,6 +178,15 @@ async function renderWrite(arg) {
     b.classList.toggle('is-active', set.has(n));
     b.setAttribute('aria-pressed', set.has(n));
     document.getElementById(`cnt-${b.dataset.kind}`).textContent = set.size ? ` ${set.size}` : '';
+    if (b.dataset.kind === 'feelings') {
+      // 選んだ気持ちで、紙の縁と玉の色が混ざっていく
+      const m = moodOf([...form.feelings]);
+      document.querySelector('#fold-f .sum-orb').innerHTML = `${orb([...form.feelings])}Feeling`;
+      const paper = document.getElementById('paper');
+      paper.style.removeProperty('--h'); paper.style.removeProperty('--r');
+      if (m) { paper.style.setProperty('--h', m.h); paper.style.setProperty('--r', m.r); }
+      paper.classList.toggle('has-mood', !!m);
+    }
     saveDraft();
   }));
   const cancel = document.getElementById('cancel');
@@ -155,7 +210,8 @@ async function saveEntry() {
   if (i >= 0) state.entries[i] = e; else state.entries.push(e);
   resetForm();
   await db.setMeta('draft', null);
-  toast(sync.enabled() ? '保存しました(数秒後に同期します)' : '保存しました');
+  state.justSaved = e.id;
+  toast(sync.enabled() ? '綴じました(数秒後に同期します)' : '綴じました');
   state.cal = null;
   location.hash = `#day/${e.date}`;
 }
@@ -171,21 +227,33 @@ async function removeEntry(id) {
 }
 
 // ---------- 日記(カレンダーとその日) ----------
+function feelingsByDate() {
+  const map = new Map();
+  for (const e of state.entries) {
+    if (!map.has(e.date)) map.set(e.date, []);
+    map.get(e.date).push(...splitTags(e.feelings));
+  }
+  return map;
+}
+
+// カレンダーは「こころの色」のモザイク。記録のある日は、その日のFeelingの平均の色で塗る
 function calendarHtml(date) {
   const [y, m] = state.cal;
-  const has = new Set(state.entries.map(e => e.date));
+  const byDate = feelingsByDate();
   const t = today();
   const cells = monthCells(y, m).map(d => {
     if (!d) return '<span class="cal__cell cal__cell--empty"></span>';
-    const cls = ['cal__cell', has.has(d) ? 'has-record' : '', d === date ? 'is-selected' : '', d === t ? 'is-today' : ''].filter(Boolean).join(' ');
-    return `<a class="${cls}" href="#day/${d}" aria-label="${dateLabel(d)}${has.has(d) ? '・記録あり' : ''}"${d === date ? ' aria-current="date"' : ''}>${Number(d.slice(8))}</a>`;
+    const has = byDate.has(d);
+    const mood = has ? moodOf(byDate.get(d)) : null;
+    const cls = ['cal__cell', has ? (mood ? 'has-mood' : 'has-record') : '', d === date ? 'is-selected' : '', d === t ? 'is-today' : '', d > t ? 'is-future' : ''].filter(Boolean).join(' ');
+    return `<a class="${cls}" href="#day/${d}" style="${moodStyle(mood)}" aria-label="${dateLabel(d)}${has ? '・記録あり' : ''}"${d === date ? ' aria-current="date"' : ''}><span>${Number(d.slice(8))}</span></a>`;
   }).join('');
   return `
     <div class="card cal">
       <div class="cal__head">
         <button class="cal__nav" data-shift="-12" aria-label="1年前">«</button>
         <button class="cal__nav" data-shift="-1" aria-label="前の月">‹</button>
-        <span class="cal__label">${y}年${m}月</span>
+        <span class="cal__label"><small>${y}</small>${m}月</span>
         <button class="cal__nav" data-shift="1" aria-label="次の月">›</button>
         <button class="cal__nav" data-shift="12" aria-label="1年後">»</button>
       </div>
@@ -195,18 +263,21 @@ function calendarHtml(date) {
 }
 
 function entryHtml(e) {
-  const tags = [...splitTags(e.feelings).map(t => `<span class="tag tag--feel">#${esc(t)}</span>`), ...splitTags(e.thinkings).map(t => `<span class="tag">#${esc(t)}</span>`)].join('');
+  const feel = splitTags(e.feelings);
+  const tags = [...feel.map(t => `<span class="tag tag--feel" style="${moodStyle(moodOf([t]))}">${esc(t)}</span>`), ...splitTags(e.thinkings).map(t => `<span class="tag tag--think">${esc(t)}</span>`)].join('');
   return `
-    <article class="card entry" data-id="${esc(e.id)}">
-      <div class="entry__time">${esc(e.time)}</div>
-      <p class="note__text">${esc(e.text)}</p>
-      ${tags ? `<div class="tags">${tags}</div>` : ''}
-      <div class="note__tools">
-        <a class="btn btn--small btn--tinted" href="#write/${encodeURIComponent(e.id)}">編集</a>
-        <button class="btn btn--small btn--plain" data-del="${esc(e.id)}">削除</button>
-        <button class="btn btn--small btn--tinted" data-insight="${esc(e.id)}">知的アドバイス</button>
+    <article class="entry${state.justSaved === e.id ? ' is-new' : ''}" data-id="${esc(e.id)}" style="${moodStyle(moodOf(feel))}">
+      <div class="entry__rail"><span class="entry__time">${esc(e.time)}</span>${orb(feel, 'orb--rail')}</div>
+      <div class="entry__body card paper${feel.length ? ' has-mood' : ''}">
+        <p class="entry__text">${esc(e.text)}</p>
+        ${tags ? `<div class="tags">${tags}</div>` : ''}
+        <div class="note__tools">
+          <button class="btn btn--small btn--tinted" data-insight="${esc(e.id)}">知的アドバイス</button>
+          <a class="btn btn--small btn--plain" href="#write/${encodeURIComponent(e.id)}">直す</a>
+          <button class="btn btn--small btn--plain" data-del="${esc(e.id)}">消す</button>
+        </div>
+        <div class="ai-slot"></div>
       </div>
-      <div class="ai-slot"></div>
     </article>`;
 }
 
@@ -216,21 +287,33 @@ async function renderDay(arg) {
   // 月送りボタンで動かしたときだけ、選んだ日と違う月を表示したままにする
   if (!state.cal || !state.calMoved) state.cal = [Number(date.slice(0, 4)), Number(date.slice(5, 7))];
   state.calMoved = false;
-  setTitle('日記');
+  setTitle('日記', { sub: daySub(date) });
   const list = entriesOn(state.entries, date);
   const days = new Set(state.entries.map(e => e.date)).size;
+  const feel = list.flatMap(e => splitTags(e.feelings));
+  const mood = moodOf(feel);
+  const words = [...new Set(feel)];
   $view.innerHTML = `
     ${calendarHtml(date)}
-    <div class="day-head">
-      <h2>${dateLabel(date)}</h2>
-      <a class="btn btn--small btn--tinted" href="#write/${date}">＋ この日に書く</a>
-    </div>
-    ${list.length ? list.map(entryHtml).join('') : '<div class="empty"><p class="empty__message">この日の記録はありません。</p></div>'}
+    <section class="day-head${mood ? ' has-mood' : ''}" style="${moodStyle(mood)}">
+      <div class="day-head__text">
+        <h2>${dateLabel(date)}</h2>
+        <p class="small">${words.length ? `こころ: ${words.map(esc).join('・')}` : list.length ? `${list.length}件の記録` : 'まだ白いページです'}</p>
+        <a class="btn btn--small btn--tinted" href="#write/${date}">＋ この日に書く</a>
+      </div>
+      ${circumplex(feel)}
+    </section>
+    ${list.length ? `<div class="thread">${list.map(entryHtml).join('')}</div>` : ''}
     <details class="fold side side--ensen" id="fold-ensen" open><summary>この日の縁<small>縁泉</small></summary><div class="fold__body"><div class="card" id="ensen-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
     <details class="fold side side--books" id="fold-books" open><summary>この日に読み終えた本<small>読書ハブ</small></summary><div class="fold__body"><div class="card" id="books-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
     <details class="fold side side--news" id="fold-news"><summary>この日のニュース<small>Gemini</small></summary><div class="fold__body"><div class="card" id="news-box"><p class="small muted" style="margin:0">ボタンを押すとGeminiが検索します。送るのは日付だけです。</p></div><div class="actions"><button class="btn btn--tinted" id="news">主要ニュースを取得</button></div></div></details>
     <p class="list-section__footer">${days}日分の記録 ・ <span id="sync-line"></span></p>`;
   watchSync(document.getElementById('sync-line'));
+  if (state.justSaved) {
+    const el = $view.querySelector('.entry.is-new');
+    state.justSaved = null;
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' }), 250);
+  }
 
   $view.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => {
     state.cal = shiftMonth(state.cal[0], state.cal[1], Number(b.dataset.shift));
@@ -299,7 +382,7 @@ function answerHtml(label, r) {
 
 async function insight(btn) {
   const e = state.entries.find(x => x.id === btn.dataset.insight);
-  const slot = btn.closest('.entry').querySelector('.ai-slot');
+  const slot = btn.closest('.entry__body').querySelector('.ai-slot');
   const cfg = await aiConfig();
   if (!cfg.apiKey) { toast('設定でGemini APIキーを入れてください'); return; }
   btn.disabled = true;
@@ -467,6 +550,9 @@ async function onRemoteChange() {
 }
 
 (async function start() {
+  applySky();
+  setInterval(applySky, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applySky(); });
   await load();
   db.requestPersist();
   // Safariのタブはホーム画面のアプリと保存場所が別で、使わないと7日で消える
