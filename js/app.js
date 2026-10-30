@@ -2,7 +2,7 @@ import * as db from './db.js';
 import * as sync from './sync.js';
 import * as gemini from './gemini.js';
 import { exportData, importData } from './backup.js';
-import { moodOf, moodStyle, skyOf, SKY_LABEL, moonAge, moonName, moonPath, affectOf, setCustomAffect, clampAffect, hueOf } from './mood.js';
+import { moodOf, moodStyle, skyOf, SKY_LABEL, moonAge, moonName, moonPath, affectOf, setCustomAffect, clampAffect, hueOf, sortTags } from './mood.js';
 import { esc, today, nowTime, isDate, dateLabel, monthCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry } from './diary.js';
 
 // ---------- 状態 ----------
@@ -47,6 +47,7 @@ async function load() {
   const [entries, tags, prompts, affect] = await Promise.all([db.getAll('entries'), db.getMeta('tags'), db.getMeta('prompts'), db.getMeta('affect')]);
   setCustomAffect(affect);
   state.affect = affect || {};
+  state.tagOrder = (await db.getMeta('tagOrder')) || 'color';
   state.entries = entries;
   state.tags = tags || { feelings: [], thinkings: [] };
   state.prompts = prompts || {};
@@ -129,9 +130,20 @@ function fillForm(e) {
   form.thinkings = new Set(splitTags(e.thinkings));
 }
 
+// タグごとの使った回数
+function tagCounts(kind) {
+  const c = {};
+  for (const e of state.entries) for (const t of splitTags(e[kind])) c[t] = (c[t] || 0) + 1;
+  return c;
+}
+
+function orderedTags(kind, list) {
+  return sortTags(list, state.tagOrder, state.tagOrder === 'often' ? tagCounts(kind) : {}, kind === 'feelings');
+}
+
 function chipsHtml(kind) {
   const set = form[kind];
-  return tagChoices(state.tags[kind], set).map(n => `<button type="button" class="kind kind--${kind}${set.has(n) ? ' is-active' : ''}" data-kind="${kind}" data-tag="${esc(n)}" aria-pressed="${set.has(n)}"${kind === 'feelings' ? ` style="${moodStyle(moodOf([n]))}"` : ''}>${esc(n)}</button>`).join('')
+  return orderedTags(kind, tagChoices(state.tags[kind], set)).map(n => `<button type="button" class="kind kind--${kind}${set.has(n) ? ' is-active' : ''}" data-kind="${kind}" data-tag="${esc(n)}" aria-pressed="${set.has(n)}"${kind === 'feelings' ? ` style="${moodStyle(moodOf([n]))}"` : ''}>${esc(n)}</button>`).join('')
     || '<p class="small muted" style="margin:0">タグはまだありません(設定で足せます)</p>';
 }
 
@@ -432,7 +444,7 @@ function paletteSvg() {
 }
 
 function paletteChips() {
-  return state.tags.feelings.map(n => `<button type="button" class="kind kind--feelings${n === palSel ? ' is-active' : ''}" data-pal="${esc(n)}" style="${moodStyle(moodOf([n]))}">${esc(n)}</button>`).join('')
+  return orderedTags('feelings', state.tags.feelings).map(n => `<button type="button" class="kind kind--feelings${n === palSel ? ' is-active' : ''}" data-pal="${esc(n)}" style="${moodStyle(moodOf([n]))}">${esc(n)}</button>`).join('')
     || '<p class="small muted" style="margin:0">Feelingタグがまだありません。</p>';
 }
 
@@ -522,7 +534,8 @@ async function renderSettings() {
         <svg class="pal" id="pal" viewBox="-1.25 -1.25 2.5 2.5" role="img" aria-label="Feelingの位置。右が快、左が不快、上が高ぶり、下が静まり">${paletteSvg()}</svg>
         <p class="small muted" id="pal-hint" style="margin:var(--space-2) 0 0">下のタグを選んでから、円の中を指でなぞると置き場所と色が変わります。</p>
       </div>
-      <div class="kinds" id="pal-tags" style="padding-top:var(--space-3)">${paletteChips()}</div>
+      <div class="segmented-wrap" style="padding-top:var(--space-3)"><div class="segmented segmented--wide" role="radiogroup" aria-label="タグの並べ方">${[['color', '色の順'], ['often', 'よく使う順'], ['sheet', 'シートの順']].map(([k, l]) => `<button type="button" class="segmented__item${state.tagOrder === k ? ' is-active' : ''}" role="radio" aria-checked="${state.tagOrder === k}" data-order="${k}">${l}</button>`).join('')}</div></div>
+      <div class="kinds" id="pal-tags">${paletteChips()}</div>
       <div class="actions"><button class="btn btn--tinted" id="pal-reset" disabled>元に戻す</button><button class="btn btn--plain" id="pal-reset-all"${Object.keys(state.affect).length ? '' : ' disabled'}>すべて元に戻す</button></div>
       <p class="list-section__footer">感情の円環モデル(Russell 1980)の2軸に置いています。右ほど快、上ほど高ぶり。円の向きが色合いに、中心からの遠さが色の濃さになります。変えた位置はこの端末に保存され、書き出しファイルにも入ります。</p>
     </div></details>
@@ -573,6 +586,12 @@ async function renderSettings() {
     reopen();
   });
   bindPalette();
+  document.querySelectorAll('[data-order]').forEach(b => b.addEventListener('click', async () => {
+    state.tagOrder = b.dataset.order;
+    await db.setMeta('tagOrder', state.tagOrder);
+    document.querySelectorAll('[data-order]').forEach(x => { x.setAttribute('aria-checked', x === b); x.classList.toggle('is-active', x === b); });
+    redrawPalette();
+  }));
   document.getElementById('t-add').addEventListener('click', async () => {
     const category = document.getElementById('t-cat').value;
     const name = document.getElementById('t-name').value.trim();

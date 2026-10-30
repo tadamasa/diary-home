@@ -99,3 +99,21 @@ export function moonPath(age, r = 10) {
   }
   return `M0,${-r} A${r},${r} 0 0 0 0,${r} A${f(rx)},${r} 0 0 ${p < 0.75 ? 0 : 1} 0,${-r}Z`;
 }
+
+// タグの並べ方。color=円をひと回りする順(快→高ぶった快→高ぶった不快→不快→沈んだ不快→静かな快、中心付近は最後)、
+// often=よく使う順(同数ならシートの順)、sheet=「タグ管理」シートの順
+export function sortTags(list, mode, counts = {}, withColor = true) {
+  const idx = new Map(list.map((n, i) => [n, i]));
+  const out = [...list];
+  if (mode === 'often') return out.sort((x, y) => (counts[y] || 0) - (counts[x] || 0) || idx.get(x) - idx.get(y));
+  if (mode === 'color' && withColor) {
+    const key = n => {
+      const [v, a] = affectOf(n);
+      if (Math.hypot(v, a) < 0.15) return 1000;
+      const t = Math.atan2(a, v) * 180 / Math.PI;
+      return t < 0 ? t + 360 : t;
+    };
+    return out.sort((x, y) => key(x) - key(y) || idx.get(x) - idx.get(y));
+  }
+  return out;
+}

@@ -35,3 +35,13 @@ test('時間帯', () => {
   assert.equal(skyOf(new Date(2026, 0, 1, 17)), 'dusk');
   assert.equal(skyOf(new Date(2026, 0, 1, 23)), 'night');
 });
+
+test('タグの並べ方: 色の順は円をひと回り、よく使う順、シートの順', async () => {
+  const { sortTags, setCustomAffect } = await import('../js/mood.js');
+  setCustomAffect({});
+  const list = ['悲しい', '普通', '嬉しい', '怒り', '穏やか', 'ワクワク'];
+  assert.deepEqual(sortTags(list, 'color'), ['嬉しい', 'ワクワク', '怒り', '悲しい', '穏やか', '普通']);
+  assert.deepEqual(sortTags(list, 'often', { 穏やか: 5, 怒り: 2 }), ['穏やか', '怒り', '悲しい', '普通', '嬉しい', 'ワクワク']);
+  assert.deepEqual(sortTags(list, 'sheet'), list);
+  assert.deepEqual(sortTags(['b', 'a'], 'color', {}, false), ['b', 'a']);
+});

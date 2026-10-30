@@ -296,3 +296,6 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .pal__dot text { font-size: .085px; font-weight: 700; fill: var(--color-label); paint-order: stroke; stroke: var(--bg-grouped-secondary); stroke-width: .02; }
 @media (prefers-color-scheme: dark) { .pal__dot { --mood-ink: hsl(var(--h, 40) calc(45% + var(--r, 0) * 30%) 68%); } }
 #pal-tags .kind.is-active { box-shadow: 0 0 0 2px var(--color-label); }
+.segmented--wide { display: flex; width: 100%; box-sizing: border-box; }
+.segmented--wide .segmented__item { flex: 1; font-size: 14px; }
+.segmented-wrap { padding: 0 var(--space-4) var(--space-3); }
