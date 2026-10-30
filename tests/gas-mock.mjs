@@ -54,7 +54,16 @@ export function loadHub() {
   diary.getSheetByName('プロンプト管理').appendRow(['Geminiサジェスト', '日記:{{text}}']);
   const props = {};
   let uuid = 0;
+  // カレンダー: { calendars: [{ name, color, hidden, selected, events: [{ title, start: Date, end: Date, allDay, location }] }] }
+  const calendar = { calendars: [] };
+  const calApi = c => ({
+    getName: () => c.name, getColor: () => c.color || '#888', isHidden: () => !!c.hidden, isSelected: () => c.selected !== false,
+    getEventsForDay: day => c.events.filter(e => e.start.toDateString() === day.toDateString()).map(e => ({
+      getTitle: () => e.title, getStartTime: () => e.start, getEndTime: () => e.end, isAllDayEvent: () => !!e.allDay, getLocation: () => e.location || '',
+    })),
+  });
   const ctx = {
+    CalendarApp: { getAllCalendars: () => calendar.calendars.map(calApi), getCalendarById: id => { const c = calendar.calendars.find(x => x.id === id); return c ? calApi(c) : null; } },
     SpreadsheetApp: { openById: () => diary },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = String(v); } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
@@ -84,6 +93,7 @@ export function loadHub() {
     diary,
     rows: () => diary.sheets.get('CoreData').rows,
     gas,
+    calendar,
     post: body => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } }).text),
   };
 }

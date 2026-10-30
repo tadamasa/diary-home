@@ -1,6 +1,6 @@
 // アプリ本体をキャッシュして、電波がなくても開けるようにする。
 // 日記ハブやAIなど外部APIはキャッシュしない。
-const VERSION = 'v4';
+const VERSION = 'v5';
 const PREFIX = 'diary-home-';
 const CACHE = `${PREFIX}${VERSION}`;
 const SHELL = [

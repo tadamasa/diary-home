@@ -48,6 +48,8 @@ function doPost(e) {
   if (!token || req.token !== token) return json_({ ok: false, error: 'unauthorized' });
   if (req.action === 'ensen') return json_(getEnsenForDate(String(req.date || '')));
   if (req.action === 'books') return json_(getBooksForDate(String(req.date || '')));
+  if (req.action === 'calendar') return json_(getCalendarForDate(String(req.date || '')));
+  if (req.action) return json_({ ok: false, error: 'unknown action' });
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -281,6 +283,40 @@ function db_() {
 
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ========== Googleカレンダー：読み取り専用 ==========
+// その日の予定を、表示しているカレンダー(Googleカレンダーでチェックの入っているもの)から集める。
+// スクリプト プロパティ CALENDAR_IDS(カンマ区切り)があれば、そのカレンダーだけにする。
+function getCalendarForDate(dateStr) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return { ok: false, error: 'bad date' };
+  try {
+    const ids = String(PropertiesService.getScriptProperties().getProperty('CALENDAR_IDS') || '').split(',').map(function (x) { return x.trim(); }).filter(String);
+    const cals = ids.length
+      ? ids.map(function (id) { return CalendarApp.getCalendarById(id); }).filter(Boolean)
+      : CalendarApp.getAllCalendars().filter(function (c) { return !c.isHidden() && c.isSelected(); });
+    const p = dateStr.split('-').map(Number);
+    const day = new Date(p[0], p[1] - 1, p[2]);
+    const events = [];
+    cals.forEach(function (cal) {
+      cal.getEventsForDay(day).forEach(function (ev) {
+        const allDay = ev.isAllDayEvent();
+        events.push({
+          title: ev.getTitle() || '(無題)',
+          start: allDay ? '' : Utilities.formatDate(ev.getStartTime(), TIMEZONE, 'HH:mm'),
+          end: allDay ? '' : Utilities.formatDate(ev.getEndTime(), TIMEZONE, 'HH:mm'),
+          allDay: allDay,
+          location: ev.getLocation() || '',
+          calendar: cal.getName(),
+          color: cal.getColor(),
+        });
+      });
+    });
+    events.sort(function (a, b) { return (a.allDay ? '' : a.start) < (b.allDay ? '' : b.start) ? -1 : 1; });
+    return { ok: true, events: events };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 // ========== 縁泉（ENSEN）連携：読み取り専用（日記v2 のコード.js と同じ処理） ==========

@@ -163,6 +163,7 @@ async function renderWrite(arg) {
   $view.innerHTML = `
     <div class="card record">
       <div class="row"><label for="dt">日時</label><input id="dt" type="datetime-local" value="${esc(form.datetime)}"></div>
+      <div class="row"><button type="button" class="cal-open" id="cal-open"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>この日の予定を見る</button></div>
     </div>
     <div class="card paper" id="paper" style="margin-top:var(--space-3);${moodStyle(moodOf([...form.feelings]))}">
       <textarea id="text" class="field field--note" placeholder="現在の意識を言語化…" aria-label="日記の本文">${esc(form.text)}</textarea>
@@ -212,8 +213,63 @@ async function renderWrite(arg) {
   });
   const remove = document.getElementById('remove');
   if (remove) remove.addEventListener('click', () => removeEntry(form.id));
+  document.getElementById('cal-open').addEventListener('click', () => openAgenda(text));
   document.getElementById('save').addEventListener('click', saveEntry);
   if (!form.id && !form.text) text.focus({ preventScroll: true });
+}
+
+// ---------- その日の予定(Googleカレンダー、日記ハブ経由で読むだけ) ----------
+function agendaLine(ev) {
+  return ev.allDay ? `終日 ${ev.title}` : `${ev.start}〜${ev.end} ${ev.title}`;
+}
+
+async function openAgenda(textarea) {
+  const date = (document.getElementById('dt').value || form.datetime).slice(0, 10);
+  if (!isDate(date)) return;
+  const pos = [textarea.selectionStart, textarea.selectionEnd];
+  let dlg = document.getElementById('agenda');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'agenda';
+    dlg.className = 'sheet agenda';
+    dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); }); // 外側をタップで閉じる
+    document.body.append(dlg);
+  }
+  const head = `<div class="sheet__grabber"></div><div class="agenda__head"><h2>${dateLabel(date)}の予定</h2><button class="btn btn--small btn--plain" id="agenda-close">閉じる</button></div>`;
+  dlg.innerHTML = `${head}<div class="agenda__body"><p class="small muted">読み込み中…</p></div>`;
+  dlg.showModal();
+  dlg.querySelector('#agenda-close').addEventListener('click', () => dlg.close());
+  const res = await sync.ask('calendar', { date }).catch(e => ({ ok: false, error: e.message }));
+  if (res.ok && !Array.isArray(res.events)) { res.ok = false; res.error = '日記ハブがまだ古い版です'; }
+  const body = dlg.querySelector('.agenda__body');
+  if (!body) return;
+  if (!res.ok) {
+    const hint = /calendar|権限|permission|古い版|unknown action/i.test(res.error || '') ? '(日記ハブを新しい版で出し直し、カレンダーの権限を許可してください)' : '';
+    body.innerHTML = `<p class="small muted">予定を読めませんでした: ${esc(res.error)}${hint}</p>`;
+    return;
+  }
+  if (!res.events.length) { body.innerHTML = '<p class="small muted">この日の予定はありません。</p>'; return; }
+  body.innerHTML = `<ul class="agenda__list">${res.events.map((ev, i) => `
+    <li><button type="button" class="agenda__ev" data-i="${i}">
+      <span class="agenda__bar" style="background:${/^#[0-9a-f]{3,8}$/i.test(ev.color) ? ev.color : 'var(--color-accent)'}"></span>
+      <span class="agenda__time">${ev.allDay ? '終日' : `${esc(ev.start)}<br>${esc(ev.end)}`}</span>
+      <span class="agenda__text"><b>${esc(ev.title)}</b><span class="small muted">${esc([ev.location, ev.calendar].filter(Boolean).join(' ・ '))}</span></span>
+      <span class="agenda__add" aria-hidden="true">＋</span>
+    </button></li>`).join('')}</ul>
+    <p class="list-section__footer">予定をタップすると、本文に「${esc(agendaLine(res.events[0]))}」のように差し込みます。</p>`;
+  body.querySelectorAll('[data-i]').forEach(b => b.addEventListener('click', () => {
+    const line = agendaLine(res.events[Number(b.dataset.i)]);
+    const v = textarea.value;
+    const [a, z] = pos;
+    const before = v.slice(0, a), after = v.slice(z);
+    const ins = `${before && !before.endsWith('\n') ? '\n' : ''}${line}${after.startsWith('\n') ? '' : '\n'}`;
+    textarea.value = before + ins + after;
+    pos[0] = pos[1] = before.length + ins.length;
+    form.text = textarea.value;
+    saveDraft();
+    b.classList.add('is-added');
+    toast('本文に差し込みました', 1400);
+  }));
 }
 
 async function saveEntry() {

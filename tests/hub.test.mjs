@@ -109,3 +109,19 @@ test('日付・時刻が Date のまま入った古い行も読める', () => {
   assert.equal(res.entries[0].data.date, '2025-01-05');
   assert.equal(res.entries[0].data.time, '09:05');
 });
+
+test('その日の予定を、表示中のカレンダーから時刻順に返す', () => {
+  const hub = loadHub();
+  const d = (h, m = 0) => new Date(2026, 9, 30, h, m);
+  hub.calendar.calendars.push(
+    { name: '仕事', color: '#039be5', events: [{ title: '定例', start: d(10), end: d(11) }, { title: '翌日', start: new Date(2026, 9, 31, 9), end: new Date(2026, 9, 31, 10) }] },
+    { name: '個人', events: [{ title: '歯医者', start: d(8, 30), end: d(9), location: '駅前' }, { title: '誕生日', start: d(0), end: d(0), allDay: true }] },
+    { name: '隠し', hidden: true, events: [{ title: '見せない', start: d(12), end: d(13) }] },
+  );
+  const res = hub.post({ token: hub.token, action: 'calendar', date: '2026-10-30' });
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.events.map(e => e.title), ['誕生日', '歯医者', '定例']);
+  assert.equal(res.events[1].start, '08:30');
+  assert.equal(res.events[1].location, '駅前');
+  assert.equal(hub.post({ token: 'x', action: 'calendar', date: '2026-10-30' }).error, 'unauthorized');
+});
