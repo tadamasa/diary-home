@@ -219,8 +219,8 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .paper { background-color: var(--paper); transition: box-shadow .4s; }
 .paper.has-mood { box-shadow: inset 4px 0 0 var(--mood-ink); }
 .paper .field--note {
-  font-family: var(--serif); font-size: 17px; line-height: 32px; min-height: 192px;
-  background-image: repeating-linear-gradient(to bottom, transparent 0 31px, var(--paper-rule) 31px 32px);
+  font-family: var(--serif); font-size: 16px; line-height: 30px; min-height: 180px;
+  background-image: repeating-linear-gradient(to bottom, transparent 0 29px, var(--paper-rule) 29px 30px);
   background-attachment: local; padding-top: 2px;
 }
 
@@ -269,7 +269,7 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .entry__rail .entry__time { margin: 0; font-size: 12px; font-weight: 600; color: var(--color-label-secondary); background: var(--bg-grouped); padding: 0 2px; }
 .orb--rail { width: 12px; height: 12px; }
 .entry__body.card { margin: 0; }
-.entry__text { margin: 0; font-family: var(--serif); font-size: 16.5px; line-height: 1.85; white-space: pre-wrap; word-break: break-word; }
+.entry__text { margin: 0; font-family: var(--serif); font-size: 15px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
 .entry .tags { margin-top: var(--space-2); }
 .entry .note__tools { margin-top: var(--space-2); gap: var(--space-1); flex-wrap: nowrap; }
 .entry .note__tools .btn { padding: 0 var(--space-3); font-size: 14px; white-space: nowrap; }
@@ -280,3 +280,19 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 @keyframes glow { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--mood-ink) 60%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
 .entry.is-new .entry__body { animation: ink .9s var(--ease-ios, ease-out) both; }
 .entry.is-new .orb--rail { animation: glow 1.4s ease-out .3s 2; }
+
+/* こころの色の編集 */
+.palette { padding: var(--space-3); }
+.pal { display: block; width: 100%; max-width: 340px; margin: 0 auto; aspect-ratio: 1; touch-action: none; user-select: none; -webkit-user-select: none; }
+.pal__hue { fill: var(--mood-ink); }
+.pal__hue { --mood-ink: hsl(var(--h) 55% 62%); }
+.pal__ring { fill: color-mix(in srgb, var(--bg-fill-quaternary) 60%, transparent); stroke: var(--color-separator-opaque); stroke-width: .006; }
+.pal__axis { stroke: var(--color-separator); stroke-width: .005; }
+.pal__lab { font-size: .075px; fill: var(--color-label-secondary); }
+.pal__dot { --mood-ink: hsl(var(--h, 40) calc(30% + var(--r, 0) * 40%) 45%); cursor: grab; }
+.pal__dot circle { fill: var(--mood-ink); stroke: var(--bg-grouped-secondary); stroke-width: .012; }
+.pal__dot.is-custom circle { stroke: var(--color-label); stroke-width: .008; }
+.pal__dot.is-sel circle { stroke: var(--color-label); stroke-width: .016; }
+.pal__dot text { font-size: .085px; font-weight: 700; fill: var(--color-label); paint-order: stroke; stroke: var(--bg-grouped-secondary); stroke-width: .02; }
+@media (prefers-color-scheme: dark) { .pal__dot { --mood-ink: hsl(var(--h, 40) calc(45% + var(--r, 0) * 30%) 68%); } }
+#pal-tags .kind.is-active { box-shadow: 0 0 0 2px var(--color-label); }

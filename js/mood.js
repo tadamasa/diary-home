@@ -37,7 +37,18 @@ function guess(name) {
   return [Math.cos(t) * 0.35, Math.sin(t) * 0.35];
 }
 
-export function affectOf(name) { return AFFECT[name] || guess(name); }
+// 本人が円の上で動かした位置(設定の「こころの色」)。既定の位置より優先する
+let custom = {};
+export function setCustomAffect(map) { custom = map || {}; }
+export function defaultAffect(name) { return AFFECT[name] || guess(name); }
+export function affectOf(name) { return custom[name] || defaultAffect(name); }
+
+// 円の中に収める(半径1)。小数2桁
+export function clampAffect(v, a) {
+  const r = Math.hypot(v, a);
+  const k = r > 1 ? 1 / r : 1;
+  return [Math.round(v * k * 100) / 100, Math.round(a * k * 100) / 100];
+}
 
 // 複数のFeelingの位置の平均 → { h, r, v, a }。Feelingがなければ null
 export function moodOf(feelings) {

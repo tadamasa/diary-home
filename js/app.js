@@ -2,7 +2,7 @@ import * as db from './db.js';
 import * as sync from './sync.js';
 import * as gemini from './gemini.js';
 import { exportData, importData } from './backup.js';
-import { moodOf, moodStyle, skyOf, SKY_LABEL, moonAge, moonName, moonPath, affectOf } from './mood.js';
+import { moodOf, moodStyle, skyOf, SKY_LABEL, moonAge, moonName, moonPath, affectOf, setCustomAffect, clampAffect, hueOf } from './mood.js';
 import { esc, today, nowTime, isDate, dateLabel, monthCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry } from './diary.js';
 
 // ---------- 状態 ----------
@@ -44,7 +44,9 @@ function setTab(tab) {
 }
 
 async function load() {
-  const [entries, tags, prompts] = await Promise.all([db.getAll('entries'), db.getMeta('tags'), db.getMeta('prompts')]);
+  const [entries, tags, prompts, affect] = await Promise.all([db.getAll('entries'), db.getMeta('tags'), db.getMeta('prompts'), db.getMeta('affect')]);
+  setCustomAffect(affect);
+  state.affect = affect || {};
   state.entries = entries;
   state.tags = tags || { feelings: [], thinkings: [] };
   state.prompts = prompts || {};
@@ -409,6 +411,84 @@ async function news(date) {
   btn.disabled = false;
 }
 
+// ---------- こころの色(タグの位置を動かす) ----------
+let palSel = null;
+
+function paletteSvg() {
+  // 外周に色相の輪。円の向きでどの色になるかが分かる
+  const ring = Array.from({ length: 72 }, (_, i) => {
+    const t0 = i * 5 * Math.PI / 180, t1 = (i + 1) * 5 * Math.PI / 180;
+    const v = Math.cos((t0 + t1) / 2), a = Math.sin((t0 + t1) / 2);
+    const p = (r, t) => `${(Math.cos(t) * r).toFixed(3)},${(-Math.sin(t) * r).toFixed(3)}`;
+    return `<path d="M${p(1.04, t0)}L${p(1.16, t0)}A1.16,1.16 0 0 0 ${p(1.16, t1)}L${p(1.04, t1)}A1.04,1.04 0 0 1 ${p(1.04, t0)}Z" class="pal__hue" style="--h:${hueOf(v, a)};--r:1"/>`;
+  }).join('');
+  const dots = state.tags.feelings.map(n => {
+    const [v, a] = affectOf(n);
+    return `<g class="pal__dot${n === palSel ? ' is-sel' : ''}${state.affect[n] ? ' is-custom' : ''}" data-name="${esc(n)}" transform="translate(${v} ${-a})" style="${moodStyle(moodOf([n]))}"><circle r="${n === palSel ? 0.075 : 0.045}"/>${n === palSel ? `<text y="-0.11" text-anchor="middle">${esc(n)}</text>` : ''}</g>`;
+  }).join('');
+  return `${ring}<circle r="1" class="pal__ring"/><path d="M-1 0H1M0 -1V1" class="pal__axis"/>
+    <text x="0.97" y="-0.04" text-anchor="end" class="pal__lab">快</text><text x="-0.97" y="-0.04" class="pal__lab">不快</text>
+    <text x="0.04" y="-0.9" class="pal__lab">高ぶり</text><text x="0.04" y="0.96" class="pal__lab">静まり</text>${dots}`;
+}
+
+function paletteChips() {
+  return state.tags.feelings.map(n => `<button type="button" class="kind kind--feelings${n === palSel ? ' is-active' : ''}" data-pal="${esc(n)}" style="${moodStyle(moodOf([n]))}">${esc(n)}</button>`).join('')
+    || '<p class="small muted" style="margin:0">Feelingタグがまだありません。</p>';
+}
+
+function redrawPalette() {
+  document.getElementById('pal').innerHTML = paletteSvg();
+  document.getElementById('pal-tags').innerHTML = paletteChips();
+  document.getElementById('pal-reset').disabled = !(palSel && state.affect[palSel]);
+  document.getElementById('pal-reset-all').disabled = !Object.keys(state.affect).length;
+  document.getElementById('pal-hint').textContent = palSel ? `「${palSel}」を円の中でなぞって置き場所を決めてください。` : '下のタグを選んでから、円の中を指でなぞると置き場所と色が変わります。';
+  document.querySelectorAll('[data-pal]').forEach(b => b.addEventListener('click', () => { palSel = b.dataset.pal === palSel ? null : b.dataset.pal; redrawPalette(); }));
+}
+
+async function saveAffect() {
+  setCustomAffect(state.affect);
+  await db.setMeta('affect', state.affect);
+}
+
+function bindPalette() {
+  const svg = document.getElementById('pal');
+  redrawPalette();
+  let drag = false;
+  const place = e => {
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    state.affect = { ...state.affect, [palSel]: clampAffect(p.x, -p.y) };
+    setCustomAffect(state.affect);
+    svg.innerHTML = paletteSvg();
+  };
+  svg.addEventListener('pointerdown', e => {
+    const dot = e.target.closest('.pal__dot');
+    if (dot) palSel = dot.dataset.name;
+    if (!palSel) { toast('先に下のタグを選んでください'); return; }
+    drag = true;
+    svg.setPointerCapture(e.pointerId);
+    place(e);
+  });
+  svg.addEventListener('pointermove', e => { if (drag) place(e); });
+  const end = async () => { if (!drag) return; drag = false; await saveAffect(); redrawPalette(); };
+  svg.addEventListener('pointerup', end);
+  svg.addEventListener('pointercancel', end);
+  document.getElementById('pal-reset').addEventListener('click', async () => {
+    if (!palSel) return;
+    const { [palSel]: _, ...rest } = state.affect;
+    state.affect = rest;
+    await saveAffect();
+    redrawPalette();
+  });
+  document.getElementById('pal-reset-all').addEventListener('click', async () => {
+    if (!confirm('すべてのタグの位置を最初の配置に戻しますか。')) return;
+    state.affect = {};
+    await saveAffect();
+    redrawPalette();
+  });
+}
+
 // ---------- 設定 ----------
 async function renderSettings() {
   setTab('settings');
@@ -436,6 +516,15 @@ async function renderSettings() {
       </div>
       <div class="actions"><button class="btn btn--tinted" id="t-add">追加</button></div>
       <p class="list-section__footer">「タグ管理」シートに足します${pendingTags.length ? `(未送信 ${pendingTags.length}件)` : ''}。Feeling ${state.tags.feelings.length}個 ・ Thinking ${state.tags.thinkings.length}個。</p>
+    </div></details>
+    <details class="fold" id="color-fold"><summary>こころの色</summary><div class="fold__body">
+      <div class="card palette">
+        <svg class="pal" id="pal" viewBox="-1.25 -1.25 2.5 2.5" role="img" aria-label="Feelingの位置。右が快、左が不快、上が高ぶり、下が静まり">${paletteSvg()}</svg>
+        <p class="small muted" id="pal-hint" style="margin:var(--space-2) 0 0">下のタグを選んでから、円の中を指でなぞると置き場所と色が変わります。</p>
+      </div>
+      <div class="kinds" id="pal-tags" style="padding-top:var(--space-3)">${paletteChips()}</div>
+      <div class="actions"><button class="btn btn--tinted" id="pal-reset" disabled>元に戻す</button><button class="btn btn--plain" id="pal-reset-all"${Object.keys(state.affect).length ? '' : ' disabled'}>すべて元に戻す</button></div>
+      <p class="list-section__footer">感情の円環モデル(Russell 1980)の2軸に置いています。右ほど快、上ほど高ぶり。円の向きが色合いに、中心からの遠さが色の濃さになります。変えた位置はこの端末に保存され、書き出しファイルにも入ります。</p>
     </div></details>
     <details class="fold"><summary>AI(Gemini)</summary><div class="fold__body">
       <div class="card">
@@ -483,6 +572,7 @@ async function renderSettings() {
     await sync.disconnect();
     reopen();
   });
+  bindPalette();
   document.getElementById('t-add').addEventListener('click', async () => {
     const category = document.getElementById('t-cat').value;
     const name = document.getElementById('t-name').value.trim();
