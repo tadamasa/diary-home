@@ -376,6 +376,7 @@ async function renderDay(arg) {
     ${list.length ? `<div class="thread">${list.map(entryHtml).join('')}</div>` : ''}
     <details class="fold side side--ensen" id="fold-ensen" open><summary>この日の縁<small>縁泉</small></summary><div class="fold__body"><div class="card" id="ensen-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
     <details class="fold side side--books" id="fold-books" open><summary>この日に読み終えた本<small>読書ハブ</small></summary><div class="fold__body"><div class="card" id="books-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
+    <details class="fold side side--films" id="fold-films" open><summary>この日に観た映画<small>映画ハブ</small></summary><div class="fold__body"><div class="card" id="films-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
     <details class="fold side side--news" id="fold-news"><summary>この日のニュース<small>Gemini</small></summary><div class="fold__body"><div class="card" id="news-box"><p class="small muted" style="margin:0">ボタンを押すとGeminiが検索します。送るのは日付だけです。</p></div><div class="actions"><button class="btn btn--tinted" id="news">主要ニュースを取得</button></div></div></details>
     <p class="list-section__footer">${days}日分の記録 ・ <span id="sync-line"></span></p>`;
   watchSync(document.getElementById('sync-line'));
@@ -396,6 +397,7 @@ async function renderDay(arg) {
   document.getElementById('news').addEventListener('click', () => news(date));
   loadEnsen(date);
   loadBooks(date);
+  loadFilms(date);
 }
 
 async function side(kind, date) {
@@ -438,6 +440,22 @@ async function loadBooks(date) {
       <span class="cover cover--sm">${b.cover ? `<img src="${esc(b.cover)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</span>
       <span class="book__text"><b>${esc(b.title)}</b> <span class="muted small">↗</span><span class="small muted" style="display:block">${esc(b.author)}${b.category ? ` ・${esc(b.category)}` : ''}</span>${b.note ? `<span class="small book__note">${esc(b.note)}</span>` : ''}</span>
     </a>`).join('') : '<p class="small muted" style="margin:0">この日に読み終えた本はありません。</p>';
+}
+
+async function loadFilms(date) {
+  const res = await side('films', date);
+  const box = document.getElementById('films-box');
+  if (!box) return;
+  if (res.ok && !Array.isArray(res.films)) { res.ok = false; res.error = '日記ハブを新しい版で出し直すと表示されます'; }
+  if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">映画ハブを読めませんでした: ${esc(res.error)}</p>`; return; }
+  box.innerHTML = res.films.length ? res.films.map(f => `
+    <a class="book" href="${esc(f.url)}" target="_blank" rel="noopener">
+      <span class="cover cover--sm">${f.poster ? `<img src="${esc(f.poster)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</span>
+      <span class="book__text"><b>${esc(f.title)}</b>${f.score !== '' ? ` <span class="film__score">${esc(f.score)}<small>/10</small></span>` : ''} <span class="muted small">↗</span>
+        <span class="small muted" style="display:block">${esc([f.year, f.directors].filter(Boolean).join(' ・ '))}</span>
+        <span class="small muted" style="display:block">${esc([f.place, f.venue].filter(Boolean).join(' ・ '))}${f.genres ? ` ・ ${esc(f.genres)}` : ''}</span>
+        ${f.text ? `<span class="small book__note">${esc(f.text)}</span>` : ''}</span>
+    </a>`).join('') : '<p class="small muted" style="margin:0">この日に観た映画はありません。</p>';
 }
 
 async function aiConfig() {

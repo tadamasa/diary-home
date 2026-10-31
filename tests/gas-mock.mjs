@@ -54,6 +54,14 @@ export function loadHub() {
   diary.getSheetByName('プロンプト管理').appendRow(['Geminiサジェスト', '日記:{{text}}']);
   const props = {};
   let uuid = 0;
+  // ほかのハブ(映画など)は ID ごとに別のブックとして模擬する
+  const books = {};
+  const addBook = (id, sheets) => {
+    const b = makeBook();
+    for (const [name, rows] of Object.entries(sheets)) { const sh = b.insertSheet(name); rows.forEach(r => sh.appendRow(r)); }
+    books[id] = b;
+    return b;
+  };
   // カレンダー: { calendars: [{ name, color, hidden, selected, events: [{ title, start: Date, end: Date, allDay, location }] }] }
   const calendar = { calendars: [] };
   const calApi = c => ({
@@ -64,7 +72,7 @@ export function loadHub() {
   });
   const ctx = {
     CalendarApp: { getAllCalendars: () => calendar.calendars.map(calApi), getCalendarById: id => { const c = calendar.calendars.find(x => x.id === id); return c ? calApi(c) : null; } },
-    SpreadsheetApp: { openById: () => diary },
+    SpreadsheetApp: { openById: id => (books[id] || diary) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = String(v); } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     ContentService: { createTextOutput: s => ({ text: s, setMimeType() { return this; } }), MimeType: { JSON: 'json' } },
@@ -94,6 +102,7 @@ export function loadHub() {
     rows: () => diary.sheets.get('CoreData').rows,
     gas,
     calendar,
+    addBook,
     post: body => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } }).text),
   };
 }

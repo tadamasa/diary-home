@@ -125,3 +125,26 @@ test('その日の予定を、表示中のカレンダーから時刻順に返�
   assert.equal(res.events[1].location, '駅前');
   assert.equal(hub.post({ token: 'x', action: 'calendar', date: '2026-10-30' }).error, 'unauthorized');
 });
+
+test('その日に観た映画を映画ハブから返す(年だけの記録は含めない)', () => {
+  const hub = loadHub();
+  const VH = ['id', 'rev', 'mtime', 'deleted', 'date', 'filmId', 'filmTitle', 'place', 'venue', 'score', 'text', 'json'];
+  const FH = ['id', 'rev', 'mtime', 'deleted', 'title', 'year', 'directors', 'status', 'tmdbId', 'json'];
+  hub.addBook('156oktIUuxKOcFZn0QYrx6ncY3AFiY-7DjgAIYbiRCm4', {
+    films: [FH, ['f1', '1', '1', 'false', 'ビーキーパー', '2024', 'デヴィッド・エアー', '観た', '866398', JSON.stringify({ posterPath: '/p.jpg', genres: ['アクション', '犯罪', 'スリラー'] })],
+      ['f2', '1', '1', 'false', 'DUNE', '2021', 'ドゥニ・ヴィルヌーヴ', '観た', '1', '{}']],
+    views: [VH, ['v1', '1', '1', 'false', '2026-10-31', 'f1', 'ビーキーパー', 'stream', 'Amazon Prime Video', '10', 'おもろい。', '{}'],
+      ['v2', '1', '1', 'false', '2026', 'f2', 'DUNE', 'stream', 'Netflix', '8', '', '{}'],
+      ['v3', '1', '1', 'true', '2026-10-31', 'f2', 'DUNE', 'stream', '', '', '', '']],
+  });
+  const res = hub.post({ token: hub.token, action: 'films', date: '2026-10-31' });
+  assert.equal(res.ok, true);
+  assert.equal(res.films.length, 1);
+  const f = res.films[0];
+  assert.equal(f.title, 'ビーキーパー');
+  assert.equal(f.place, '配信');
+  assert.equal(f.score, '10');
+  assert.equal(f.poster, 'https://image.tmdb.org/t/p/w185/p.jpg');
+  assert.equal(f.genres, 'アクション・犯罪');
+  assert.equal(f.url, 'https://tadamasa.github.io/movie-memo/#film/f1');
+});

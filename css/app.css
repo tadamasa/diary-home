@@ -128,7 +128,8 @@ svg.ic { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-wid
 .side--ensen { --side: #b45309; }
 .side--books { --side: #4f46e5; }
 .side--news { --side: #15803d; }
-@media (prefers-color-scheme: dark) { .side--ensen { --side: #fbbf24; } .side--books { --side: #a5b4fc; } .side--news { --side: #86efac; } }
+.side--films { --side: #be123c; }
+@media (prefers-color-scheme: dark) { .side--ensen { --side: #fbbf24; } .side--books { --side: #a5b4fc; } .side--news { --side: #86efac; } .side--films { --side: #fda4af; } }
 .side > summary small { color: var(--side); }
 .side .card { background-color: color-mix(in srgb, var(--side) 7%, var(--bg-grouped-secondary)); }
 .ev { padding: var(--space-1) 0; }
@@ -317,3 +318,6 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .agenda__ev.is-added .agenda__add::after { content: "✓"; }
 .agenda__ev.is-added .agenda__add { font-size: 0; }
 .agenda__ev.is-added .agenda__add::after { font-size: 18px; }
+
+.film__score { font-size: 13px; font-weight: 700; color: var(--side); font-variant-numeric: tabular-nums; }
+.film__score small { font-weight: 400; font-size: 11px; color: var(--color-label-secondary); }

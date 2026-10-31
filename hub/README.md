@@ -41,10 +41,11 @@ Code.gs を貼り替えて保存したら、「デプロイ」→「デプロイ
 | `SPREADSHEET_ID` | 「日記の記録」(1yVC3q2d…) |
 | `ENSEN_SHEET_ID` / `ENSEN_UI_URL` | 縁泉のシートとUI |
 | `BOOKS_SHEET_ID` / `READING_APP_URL` | 読書ハブと読書メモアプリ |
+| `MOVIES_SHEET_ID` / `MOVIE_APP_URL` | 映画ハブ(156oktIU…)と映画メモアプリ |
 
 | `CALENDAR_IDS` | (なし)= Googleカレンダーで表示中のカレンダー全部。カンマ区切りのIDで絞れる |
 
-縁泉・読書ハブ・Googleカレンダーは読むだけで、書き込みません。
+縁泉・読書ハブ・映画ハブ・Googleカレンダーは読むだけで、書き込みません。
 
 ## Googleカレンダーの予定(記録画面の「この日の予定を見る」)
 

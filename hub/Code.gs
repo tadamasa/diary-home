@@ -49,6 +49,7 @@ function doPost(e) {
   if (req.action === 'ensen') return json_(getEnsenForDate(String(req.date || '')));
   if (req.action === 'books') return json_(getBooksForDate(String(req.date || '')));
   if (req.action === 'calendar') return json_(getCalendarForDate(String(req.date || '')));
+  if (req.action === 'films') return json_(getFilmsForDate(String(req.date || '')));
   if (req.action) return json_({ ok: false, error: 'unknown action' });
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -430,4 +431,61 @@ function readBookNotes_(ss, books) {
     if (text) out[bookId] = text;
   }
   return out;
+}
+
+// ========== 映画ハブ連携：読み取り専用 ==========
+// films: id, rev, mtime, deleted, title, year, directors, status, tmdbId, json
+// views: id, rev, mtime, deleted, date, filmId, filmTitle, place, venue, score, text, json
+const MOVIES_SHEET_ID_DEFAULT = '156oktIUuxKOcFZn0QYrx6ncY3AFiY-7DjgAIYbiRCm4';
+const MOVIE_APP_URL_DEFAULT = 'https://tadamasa.github.io/movie-memo/';
+const PLACE_LABEL = { stream: '配信', theater: '映画館', tv: 'テレビ', disc: 'ディスク', other: 'その他' };
+
+/**
+ * 指定日に観た映画(views の date が同じ日)を返す。年だけ・月だけの「思い出し」記録は含めない。
+ * ポスターと監督は films の json から取る。各映画は映画メモアプリの #film/ID に飛べる。
+ */
+function getFilmsForDate(dateStr) {
+  const props = PropertiesService.getScriptProperties();
+  const sheetId = props.getProperty('MOVIES_SHEET_ID') || MOVIES_SHEET_ID_DEFAULT;
+  const appUrl = props.getProperty('MOVIE_APP_URL') || MOVIE_APP_URL_DEFAULT;
+  try {
+    const ss = SpreadsheetApp.openById(sheetId);
+    const vs = ss.getSheetByName('views');
+    const last = vs.getLastRow();
+    const rows = last < 2 ? [] : vs.getRange(2, 1, last - 1, 11).getValues();
+    const views = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (String(r[3]).toLowerCase() === 'true' || toDateStr_(r[4]) !== dateStr) continue;
+      views.push({ filmId: String(r[5]), title: String(r[6] || ''), place: PLACE_LABEL[String(r[7])] || String(r[7] || ''), venue: String(r[8] || ''), score: r[9] === '' ? '' : String(r[9]), text: String(r[10] || '') });
+    }
+    if (views.length) {
+      const fs = ss.getSheetByName('films');
+      const fl = fs.getLastRow();
+      const ids = fl < 2 ? [] : fs.getRange(2, 1, fl - 1, 1).getValues();
+      const want = {};
+      views.forEach(function (v) { want[v.filmId] = true; });
+      const info = {};
+      for (let i = 0; i < ids.length; i++) {
+        const id = String(ids[i][0]);
+        if (!want[id] || info[id]) continue;
+        const r = fs.getRange(i + 2, 1, 1, 10).getValues()[0];
+        let j = {};
+        try { j = JSON.parse(r[9] || '{}'); } catch (e) { j = {}; }
+        info[id] = { title: String(r[4] || ''), year: String(r[5] || ''), directors: String(r[6] || ''), poster: j.posterPath ? 'https://image.tmdb.org/t/p/w185' + j.posterPath : '', genres: (j.genres || []).slice(0, 2).join('・') };
+      }
+      views.forEach(function (v) {
+        const f = info[v.filmId] || {};
+        v.title = f.title || v.title;
+        v.year = f.year || '';
+        v.directors = f.directors || '';
+        v.poster = f.poster || '';
+        v.genres = f.genres || '';
+        v.url = appUrl + '#film/' + encodeURIComponent(v.filmId);
+      });
+    }
+    return { ok: true, films: views };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
