@@ -148,3 +148,18 @@ test('その日に観た映画を映画ハブから返す(年だけの記録は�
   assert.equal(f.genres, 'アクション・犯罪');
   assert.equal(f.url, 'https://tadamasa.github.io/movie-memo/#film/f1');
 });
+
+test('月ごとに、本を読み終えた日と映画を観た日を返す', () => {
+  const hub = loadHub();
+  const BH = ['id', 'rev', 'mtime', 'deleted', 'title', 'author', 'status', 'category', 'score', 'finishedAt', 'json'];
+  hub.addBook('1WEsS95CKH7JPFuGf7BYzlTV-d6FyTVg0OCOymKHqsZg', {
+    books: [BH, ['b1', '1', '1', 'false', 'A', '', '読了', '', '', '2026-10-05', '{}'], ['b2', '1', '1', 'false', 'B', '', '読みたい', '', '', '2026-10-06', '{}'],
+      ['b3', '1', '1', 'true', 'C', '', '読了', '', '', '2026-10-07', '{}'], ['b4', '1', '1', 'false', 'D', '', '読了', '', '', '2026-11-01', '{}']],
+  });
+  hub.addBook('156oktIUuxKOcFZn0QYrx6ncY3AFiY-7DjgAIYbiRCm4', {
+    views: [['id', 'rev', 'mtime', 'deleted', 'date'], ['v1', '1', '1', 'false', '2026-10-31'], ['v2', '1', '1', 'false', '2026'], ['v3', '1', '1', 'false', '2026-10-31']],
+  });
+  const res = hub.post({ token: hub.token, action: 'month', month: '2026-10' });
+  assert.deepEqual([...res.books], ['2026-10-05']);
+  assert.deepEqual([...res.films], ['2026-10-31']);
+});

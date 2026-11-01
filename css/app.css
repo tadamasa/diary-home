@@ -202,12 +202,12 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .moon__lit { fill: var(--moon-lit); }
 
 /* こころの色。--h(色相)と --r(濃さ 0〜1)を各要素に渡して使う */
-.orb, .cal__cell, .kind--feelings, .tag--feel, .paper, .entry, .day-head, .cx__dot {
+.orb, .cal__bar i, .kind--feelings, .tag--feel, .paper, .entry, .day-head, .cx__dot {
   --mood: hsl(var(--h, 40) calc(22% + var(--r, 0) * 33%) calc(87% - var(--r, 0) * 9%));
   --mood-ink: hsl(var(--h, 40) calc(30% + var(--r, 0) * 40%) 40%);
 }
 @media (prefers-color-scheme: dark) {
-  .orb, .cal__cell, .kind--feelings, .tag--feel, .paper, .entry, .day-head, .cx__dot {
+  .orb, .cal__bar i, .kind--feelings, .tag--feel, .paper, .entry, .day-head, .cx__dot {
     --mood: hsl(var(--h, 40) calc(18% + var(--r, 0) * 28%) calc(26% + var(--r, 0) * 8%));
     --mood-ink: hsl(var(--h, 40) calc(45% + var(--r, 0) * 30%) 72%);
   }
@@ -239,16 +239,26 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .cal__label { font-family: var(--serif); font-size: 19px; font-weight: 600; display: inline-flex; align-items: baseline; gap: 6px; }
 .cal__label small { font-family: var(--font-sans); font-size: 12px; font-weight: 400; color: var(--color-label-secondary); }
 .cal__grid { gap: 4px; }
-.cal__cell { border-radius: 12px; aspect-ratio: 1; max-width: none; font-size: 15px; transition: transform .15s, background-color .3s; }
+.cal__cell { flex-direction: column; justify-content: flex-start; gap: 3px; padding-top: 6px; border-radius: 12px; aspect-ratio: auto; min-height: 52px; max-width: none; font-size: 15px; background: none; transition: transform .15s, background-color .3s; }
 .cal__cell:active { transform: scale(.92); }
-.cal__cell.has-mood { background-color: var(--mood); }
-.cal__cell.has-record { background-color: var(--bg-fill-tertiary); }
-.cal__cell.has-mood::after, .cal__cell.has-record::after { display: none; }
-.cal__cell.is-today span { border-bottom: 2px solid var(--color-accent); line-height: 1.15; }
+.cal__cell.has-record::after { display: none; }
+.cal__num { line-height: 20px; }
+/* こころの色: 日付の下の細いバー。その日のFeelingを並べた分だけ区切る */
+.cal__bar { display: flex; gap: 1px; width: 62%; height: 4px; border-radius: 2px; overflow: hidden; }
+.cal__bar i { flex: 1; background-color: var(--mood-ink); }
+.cal__bar i.is-plain { background-color: var(--color-label-secondary); opacity: .35; }
+/* 読了本・映画の点 */
+.cal__dots { display: flex; gap: 3px; height: 5px; }
+.dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; }
+.dot--book { background-color: #4f46e5; }
+.dot--film { background-color: #be123c; }
+@media (prefers-color-scheme: dark) { .dot--book { background-color: #a5b4fc; } .dot--film { background-color: #fda4af; } }
+.cal__legend { display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-2); font-size: 11px; color: var(--color-label-secondary); }
+.cal__legend span { display: inline-flex; align-items: center; gap: 4px; }
+.cal__cell.is-today .cal__num { color: var(--color-accent); font-weight: 700; }
 .cal__cell.is-today { color: var(--color-label); }
 .cal__cell.is-future { color: var(--color-label-tertiary, var(--color-label-secondary)); }
-.cal__cell.is-selected { background-color: var(--mood, var(--bg-fill-tertiary)); color: var(--color-label); box-shadow: 0 0 0 2px var(--color-label); font-weight: 700; }
-.cal__cell.is-selected:not(.has-mood):not(.has-record) { background-color: transparent; }
+.cal__cell.is-selected { background-color: var(--bg-fill-tertiary); color: var(--color-label); box-shadow: inset 0 0 0 1.5px var(--color-label); font-weight: 700; }
 
 /* その日の見出し */
 .day-head { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-4) var(--space-4) 0; padding: var(--space-3) var(--space-4); border-radius: var(--r-card); }

@@ -12,6 +12,7 @@ const state = {
   prompts: {},
   cal: null, // [年, 月] 日記タブで表示中の月
   side: {}, // 日付ごとの縁泉・読了本(開いている間だけ覚える)
+  marks: {}, // 月ごとの読了本・映画の日 { 'YYYY-MM': { books: Set, films: Set } }
 };
 const form = { id: null, datetime: '', text: '', feelings: new Set(), thinkings: new Set() };
 
@@ -297,6 +298,49 @@ async function removeEntry(id) {
 }
 
 // ---------- 日記(カレンダーとその日) ----------
+// 月ごとの「本を読み終えた日・映画を観た日」。端末に覚えておき(圏外でも出る)、開くたびに一度だけハブに聞き直す
+const marksAsked = new Set();
+function monthMarks(y, m) {
+  const ym = `${y}-${String(m).padStart(2, '0')}`;
+  const cached = state.marks[ym];
+  if (!marksAsked.has(ym) && sync.enabled()) {
+    marksAsked.add(ym);
+    (async () => {
+      if (!cached) {
+        const saved = await db.getMeta(`marks:${ym}`);
+        if (saved) { state.marks[ym] = { books: new Set(saved.books), films: new Set(saved.films) }; refreshCalendar(); }
+      }
+      const res = await sync.ask('month', { month: ym }).catch(() => null);
+      if (!res || !res.ok || !Array.isArray(res.books)) { if (!state.marks[ym]) marksAsked.delete(ym); return; }
+      const prev = state.marks[ym];
+      state.marks[ym] = { books: new Set(res.books), films: new Set(res.films || []) };
+      await db.setMeta(`marks:${ym}`, { books: res.books, films: res.films || [] });
+      if (!prev || [...prev.books].join() !== res.books.join() || [...prev.films].join() !== (res.films || []).join()) refreshCalendar();
+    })();
+  }
+  return cached || { books: new Set(), films: new Set() };
+}
+
+// 印が届いたら、カレンダーだけ描き直す
+function refreshCalendar() {
+  const cal = $view.querySelector('.cal');
+  if (!cal || !location.hash.startsWith('#day')) return;
+  const date = (location.hash.split('/')[1] || '');
+  const tmp = document.createElement('div');
+  tmp.innerHTML = calendarHtml(isDate(date) ? date : today());
+  cal.replaceWith(tmp.firstElementChild);
+  bindCalendar(isDate(date) ? date : today());
+}
+
+function bindCalendar(date) {
+  $view.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => {
+    state.cal = shiftMonth(state.cal[0], state.cal[1], Number(b.dataset.shift));
+    state.calMoved = true;
+    const y = scrollY;
+    renderDay(date).then(() => scrollTo(0, y));
+  }));
+}
+
 function feelingsByDate() {
   const map = new Map();
   for (const e of state.entries) {
@@ -311,12 +355,18 @@ function calendarHtml(date) {
   const [y, m] = state.cal;
   const byDate = feelingsByDate();
   const t = today();
+  const marks = monthMarks(y, m);
   const cells = monthCells(y, m).map(d => {
     if (!d) return '<span class="cal__cell cal__cell--empty"></span>';
     const has = byDate.has(d);
-    const mood = has ? moodOf(byDate.get(d)) : null;
-    const cls = ['cal__cell', has ? (mood ? 'has-mood' : 'has-record') : '', d === date ? 'is-selected' : '', d === t ? 'is-today' : '', d > t ? 'is-future' : ''].filter(Boolean).join(' ');
-    return `<a class="${cls}" href="#day/${d}" style="${moodStyle(mood)}" aria-label="${dateLabel(d)}${has ? '・記録あり' : ''}"${d === date ? ' aria-current="date"' : ''}><span>${Number(d.slice(8))}</span></a>`;
+    // 日付の下: その日のこころの色のバー(Feelingごとに区切る、最大3色)と、読了本・映画のドット
+    const feel = has ? [...new Set(byDate.get(d))].slice(0, 3) : [];
+    const bar = has ? `<span class="cal__bar">${feel.length ? feel.map(f => `<i style="${moodStyle(moodOf([f]))}"></i>`).join('') : '<i class="is-plain"></i>'}</span>` : '<span class="cal__bar"></span>';
+    const book = marks.books.has(d), film = marks.films.has(d);
+    const dots = `<span class="cal__dots">${book ? '<i class="dot dot--book"></i>' : ''}${film ? '<i class="dot dot--film"></i>' : ''}</span>`;
+    const cls = ['cal__cell', has ? 'has-record' : '', d === date ? 'is-selected' : '', d === t ? 'is-today' : '', d > t ? 'is-future' : ''].filter(Boolean).join(' ');
+    const label = [dateLabel(d), has ? '日記あり' : '', book ? '読了本あり' : '', film ? '映画あり' : ''].filter(Boolean).join('・');
+    return `<a class="${cls}" href="#day/${d}" aria-label="${label}"${d === date ? ' aria-current="date"' : ''}><span class="cal__num">${Number(d.slice(8))}</span>${bar}${dots}</a>`;
   }).join('');
   return `
     <div class="card cal">
@@ -329,6 +379,7 @@ function calendarHtml(date) {
       </div>
       <div class="cal__grid cal__week" aria-hidden="true">${[...'日月火水木金土'].map(w => `<span>${w}</span>`).join('')}</div>
       <div class="cal__grid">${cells}</div>
+      <div class="cal__legend" aria-hidden="true"><span><i class="dot dot--book"></i>読了</span><span><i class="dot dot--film"></i>映画</span></div>
     </div>`;
 }
 
@@ -386,12 +437,7 @@ async function renderDay(arg) {
     if (el) setTimeout(() => el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' }), 250);
   }
 
-  $view.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => {
-    state.cal = shiftMonth(state.cal[0], state.cal[1], Number(b.dataset.shift));
-    state.calMoved = true;
-    const y = scrollY;
-    renderDay(date).then(() => scrollTo(0, y));
-  }));
+  bindCalendar(date);
   $view.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => removeEntry(b.dataset.del)));
   $view.querySelectorAll('[data-insight]').forEach(b => b.addEventListener('click', () => insight(b)));
   document.getElementById('news').addEventListener('click', () => news(date));

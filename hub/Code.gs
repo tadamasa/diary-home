@@ -50,6 +50,7 @@ function doPost(e) {
   if (req.action === 'books') return json_(getBooksForDate(String(req.date || '')));
   if (req.action === 'calendar') return json_(getCalendarForDate(String(req.date || '')));
   if (req.action === 'films') return json_(getFilmsForDate(String(req.date || '')));
+  if (req.action === 'month') return json_(getMonthMarks(String(req.month || '')));
   if (req.action) return json_({ ok: false, error: 'unknown action' });
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -488,4 +489,27 @@ function getFilmsForDate(dateStr) {
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+// ========== カレンダーの印：月ごとに、本を読み終えた日・映画を観た日 ==========
+function getMonthMarks(ym) {
+  if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, error: 'bad month' };
+  const props = PropertiesService.getScriptProperties();
+  const out = { ok: true, month: ym, books: [], films: [] };
+  const pick = (rows, dateCol, keep) => {
+    const set = {};
+    rows.forEach(function (r) { const d = toDateStr_(r[dateCol]); if (d.length === 10 && d.substring(0, 7) === ym && keep(r)) set[d] = true; });
+    return Object.keys(set).sort();
+  };
+  try {
+    const sh = SpreadsheetApp.openById(props.getProperty('BOOKS_SHEET_ID') || BOOKS_SHEET_ID_DEFAULT).getSheetByName('books');
+    const rows = sh.getLastRow() < 2 ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 10).getValues();
+    out.books = pick(rows, 9, function (r) { return String(r[3]).toLowerCase() !== 'true' && String(r[6]) === '読了'; });
+  } catch (e) { out.booksError = String(e); }
+  try {
+    const sh = SpreadsheetApp.openById(props.getProperty('MOVIES_SHEET_ID') || MOVIES_SHEET_ID_DEFAULT).getSheetByName('views');
+    const rows = sh.getLastRow() < 2 ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues();
+    out.films = pick(rows, 4, function (r) { return String(r[3]).toLowerCase() !== 'true'; });
+  } catch (e) { out.filmsError = String(e); }
+  return out;
 }
