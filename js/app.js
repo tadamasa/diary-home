@@ -3,7 +3,7 @@ import * as sync from './sync.js';
 import * as gemini from './gemini.js';
 import { exportData, importData } from './backup.js';
 import { moodOf, moodStyle, skyOf, SKY_LABEL, moonAge, moonName, moonPath, affectOf, setCustomAffect, clampAffect, hueOf, sortTags } from './mood.js';
-import { esc, today, nowTime, isDate, dateLabel, monthCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry } from './diary.js';
+import { esc, today, nowTime, isDate, dateLabel, monthCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry, shiftDay, swipeDir } from './diary.js';
 
 // ---------- 状態 ----------
 const state = {
@@ -311,7 +311,12 @@ function monthMarks(y, m) {
         if (saved) { state.marks[ym] = { books: new Set(saved.books), films: new Set(saved.films) }; refreshCalendar(); }
       }
       const res = await sync.ask('month', { month: ym }).catch(() => null);
+      // 古い版のハブは month を知らず、同期の返事を返す(books がない)
+      if (res && res.ok && !Array.isArray(res.books)) { state.marksNote = '読書・映画の点は、日記ハブを新しい版で出し直すと出ます'; refreshCalendar(); }
       if (!res || !res.ok || !Array.isArray(res.books)) { if (!state.marks[ym]) marksAsked.delete(ym); return; }
+      const errs = [res.booksError && '読書ハブ', res.filmsError && '映画ハブ'].filter(Boolean);
+      const note = errs.length ? `${errs.join('・')}を読めませんでした` : '';
+      if (note !== (state.marksNote || '')) { state.marksNote = note; refreshCalendar(); }
       const prev = state.marks[ym];
       state.marks[ym] = { books: new Set(res.books), films: new Set(res.films || []) };
       await db.setMeta(`marks:${ym}`, { books: res.books, films: res.films || [] });
@@ -380,6 +385,7 @@ function calendarHtml(date) {
       <div class="cal__grid cal__week" aria-hidden="true">${[...'日月火水木金土'].map(w => `<span>${w}</span>`).join('')}</div>
       <div class="cal__grid">${cells}</div>
       <div class="cal__legend" aria-hidden="true"><span><i class="dot dot--book"></i>読了</span><span><i class="dot dot--film"></i>映画</span></div>
+      ${state.marksNote ? `<p class="cal__note">${esc(state.marksNote)}</p>` : ''}
     </div>`;
 }
 
@@ -441,6 +447,7 @@ async function renderDay(arg) {
   $view.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => removeEntry(b.dataset.del)));
   $view.querySelectorAll('[data-insight]').forEach(b => b.addEventListener('click', () => insight(b)));
   document.getElementById('news').addEventListener('click', () => news(date));
+  if (state.slide) { slideIn(state.slide, '.day-head, .thread, .side'); state.slide = 0; }
   loadEnsen(date);
   loadBooks(date);
   loadFilms(date);
@@ -761,6 +768,44 @@ addEventListener('hashchange', () => {
   const y = scrollY;
   route().then(() => { if (keep) scrollTo(0, y); });
 });
+
+// 日記タブ: 左右のフリックで日を送る。カレンダーの上なら月を送る
+let touch = null;
+$view.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  const ok = e.touches.length === 1 && location.hash.startsWith('#day') && !e.target.closest('input, textarea, select, .traces, [data-noswipe]');
+  touch = ok ? { x: t.clientX, y: t.clientY, at: Date.now(), cal: !!e.target.closest('.cal') } : null;
+}, { passive: true });
+$view.addEventListener('touchend', e => {
+  if (!touch) return;
+  const t = e.changedTouches[0];
+  const dir = swipeDir(t.clientX - touch.x, t.clientY - touch.y, Date.now() - touch.at);
+  const onCal = touch.cal;
+  touch = null;
+  if (!dir) return;
+  const cur = (location.hash.split('/')[1] || '');
+  const date = isDate(cur) ? cur : today();
+  if (onCal) {
+    state.cal = shiftMonth(state.cal[0], state.cal[1], dir);
+    state.calMoved = true;
+    const y = scrollY;
+    renderDay(date).then(() => { scrollTo(0, y); slideIn(dir, '.cal'); });
+    return;
+  }
+  state.slide = dir;
+  location.replace(`#day/${shiftDay(date, dir)}`);
+}, { passive: true });
+$view.addEventListener('touchcancel', () => { touch = null; }, { passive: true });
+
+// 送った向きから、ふわっと入ってくる
+function slideIn(dir, sel) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  $view.querySelectorAll(sel).forEach(el => {
+    el.classList.remove('slide-next', 'slide-prev');
+    void el.offsetWidth;
+    el.classList.add(dir > 0 ? 'slide-next' : 'slide-prev');
+  });
+}
 
 // Large Title の折り畳み
 const nav = document.getElementById('nav');

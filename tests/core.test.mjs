@@ -39,3 +39,15 @@ test('記録を作る', () => {
   const e = makeEntry({ datetime: '2026-10-30T21:05', text: 't', feelings: new Set(['a']), thinkings: new Set() }, () => 'id1');
   assert.deepEqual(e, { id: 'id1', date: '2026-10-30', time: '21:05', text: 't', feelings: ['a'], thinkings: [] });
 });
+
+test('日送りとフリックの判定', async () => {
+  const { shiftDay, swipeDir } = await import('../js/diary.js');
+  assert.equal(shiftDay('2026-10-31', 1), '2026-11-01');
+  assert.equal(shiftDay('2026-01-01', -1), '2025-12-31');
+  assert.equal(shiftDay('2028-02-28', 1), '2028-02-29');
+  assert.equal(swipeDir(-120, 10, 200), 1);
+  assert.equal(swipeDir(120, 10, 200), -1);
+  assert.equal(swipeDir(-120, 80, 200), 0); // 斜めはスクロール扱い
+  assert.equal(swipeDir(-40, 0, 200), 0);
+  assert.equal(swipeDir(-120, 0, 900), 0);
+});

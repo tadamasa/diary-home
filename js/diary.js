@@ -83,3 +83,16 @@ export function makeEntry({ id, datetime, text, feelings, thinkings }, uid) {
     thinkings: [...thinkings],
   };
 }
+
+// 日付を n 日ずらす(端末の暦で。月末・年末・うるう年をまたいでよい)
+export function shiftDay(s, n) {
+  const [y, m, d] = s.split('-').map(Number);
+  return today(new Date(y, m - 1, d + n));
+}
+
+// 指の動きが「横のフリック」なら -1(右へ払う=前) / 1(左へ払う=次)、それ以外は 0。
+// 縦のスクロールと見分けるため、横が縦の2倍以上・60px以上・0.6秒以内のときだけ
+export function swipeDir(dx, dy, ms) {
+  if (ms > 600 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return 0;
+  return dx < 0 ? 1 : -1;
+}

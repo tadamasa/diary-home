@@ -331,3 +331,10 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 
 .film__score { font-size: 13px; font-weight: 700; color: var(--side); font-variant-numeric: tabular-nums; }
 .film__score small { font-weight: 400; font-size: 11px; color: var(--color-label-secondary); }
+
+/* フリックで日・月を送ったときの入り方 */
+@keyframes slide-next { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes slide-prev { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+.slide-next { animation: slide-next .28s cubic-bezier(.2, .8, .2, 1); }
+.slide-prev { animation: slide-prev .28s cubic-bezier(.2, .8, .2, 1); }
+.cal__note { margin: var(--space-1) 0 0; font-size: 11px; color: var(--color-label-secondary); text-align: right; }
