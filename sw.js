@@ -1,12 +1,12 @@
 // アプリ本体をキャッシュして、電波がなくても開けるようにする。
 // 日記ハブやAIなど外部APIはキャッシュしない。
-const VERSION = 'v8';
+const VERSION = 'v9';
 const PREFIX = 'diary-home-';
 const CACHE = `${PREFIX}${VERSION}`;
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest',
   'css/hig-tokens.css', 'css/hig-components.css', 'css/app.css',
-  'js/app.js', 'js/db.js', 'js/diary.js', 'js/mood.js', 'js/sync.js', 'js/gemini.js', 'js/backup.js',
+  'js/app.js', 'js/db.js', 'js/diary.js', 'js/mood.js', 'js/sync.js', 'js/search.js', 'js/gemini.js', 'js/backup.js',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 

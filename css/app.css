@@ -338,3 +338,57 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .slide-next { animation: slide-next .28s cubic-bezier(.2, .8, .2, 1); }
 .slide-prev { animation: slide-prev .28s cubic-bezier(.2, .8, .2, 1); }
 .cal__note { margin: var(--space-1) 0 0; font-size: 11px; color: var(--color-label-secondary); text-align: right; }
+
+/* さがす: タブバーの右の丸いアイランド */
+.tabbar__search { color: var(--color-label-secondary); }
+.tabbar__search.is-active { color: var(--color-accent); }
+.tabbar__search svg.ic { width: 24px; height: 24px; }
+.search--page { min-height: var(--hit); margin: var(--space-2) var(--space-4) var(--space-3); padding: 0 var(--space-3); background-color: var(--bg-grouped-secondary); }
+.search--page .ic { width: 18px; height: 18px; flex: none; }
+.search--page input { font-size: 16px; min-height: var(--hit); -webkit-appearance: none; appearance: none; }
+.search--page input::-webkit-search-cancel-button { display: none; }
+.search__clear { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-fill-tertiary); color: var(--color-label-secondary); font-size: 16px; line-height: 28px; }
+.search-sum { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: var(--space-4) var(--space-4) var(--space-2); font-size: 15px; }
+.search-sum .segmented__item { font-size: 13px; padding: 0 var(--space-3); }
+mark { background: color-mix(in srgb, #facc15 45%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+@media (prefers-color-scheme: dark) { mark { background: color-mix(in srgb, #facc15 35%, transparent); } }
+
+/* 時の帯: 当たった記録が、いつ現れていたか(年×月) */
+.tl { padding: var(--space-3); }
+.tl__row { display: grid; grid-template-columns: 38px repeat(12, 1fr); gap: 3px; align-items: center; }
+.tl__row + .tl__row { margin-top: 3px; }
+.tl__months span { font-size: 10px; text-align: center; color: var(--color-label-secondary); }
+.tl__year { font-size: 11px; color: var(--color-label-secondary); font-variant-numeric: tabular-nums; }
+.tl__cell { height: 18px; border-radius: 4px; background-color: var(--bg-fill-quaternary); }
+.tl__cell.is-hit { --mood-ink: hsl(var(--h, 40) calc(30% + var(--r, 0) * 40%) 50%); background-color: color-mix(in srgb, var(--mood-ink) calc(var(--k) * 100%), transparent); display: flex; align-items: center; justify-content: center; }
+.tl__cell.is-plain { --mood-ink: var(--color-label-secondary); }
+.tl__cell small { font-size: 9px; color: #fff; font-weight: 700; }
+@media (prefers-color-scheme: dark) { .tl__cell.is-hit { --mood-ink: hsl(var(--h, 40) calc(45% + var(--r, 0) * 30%) 62%); } .tl__cell small { color: #111; } }
+
+/* いっしょにあったこころ */
+.co { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: var(--space-3) var(--space-4) 0; }
+.co__tag { font-size: 13px; min-height: 28px; padding: 2px var(--space-3); }
+.co__tag small { opacity: .7; margin-left: 2px; }
+
+/* 当たった記録 */
+.hits { padding: 0 var(--space-4) var(--space-2); }
+.hit__date { font-family: var(--serif); font-size: 15px; font-weight: 600; margin: var(--space-4) 0 var(--space-2); color: var(--color-label-secondary); scroll-margin-top: 100px; }
+.hit { display: grid; grid-template-columns: 44px 1fr; gap: var(--space-2); padding: var(--space-3) var(--space-3) var(--space-3) var(--space-2); border-radius: var(--r-card); color: var(--color-label); }
+.hit + .hit { margin-top: var(--space-2); }
+.hit:active { transform: scale(.98); }
+.hit__rail { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.hit__rail .entry__time { font-size: 12px; font-weight: 600; color: var(--color-label-secondary); }
+.hit__body { min-width: 0; }
+.hit__text { display: block; font-family: var(--serif); font-size: 15px; line-height: 1.75; word-break: break-word; }
+.hit .tags { margin-top: var(--space-2); }
+.tag.is-hit { box-shadow: 0 0 0 1.5px var(--color-label); }
+a.tag { text-decoration: none; }
+a.tag--think { color: var(--color-label-secondary); }
+.paper.hit { box-shadow: none; }
+.paper.hit.has-mood { box-shadow: inset 4px 0 0 var(--mood-ink); }
+.hit { --mood: hsl(var(--h, 40) calc(22% + var(--r, 0) * 33%) calc(87% - var(--r, 0) * 9%)); --mood-ink: hsl(var(--h, 40) calc(30% + var(--r, 0) * 40%) 40%); }
+@media (prefers-color-scheme: dark) { .hit { --mood: hsl(var(--h, 40) calc(18% + var(--r, 0) * 28%) calc(26% + var(--r, 0) * 8%)); --mood-ink: hsl(var(--h, 40) calc(45% + var(--r, 0) * 30%) 72%); } }
+
+/* 検索から開いた記録は、しばらく縁が光る */
+@keyframes found { 0%, 60% { box-shadow: 0 0 0 2px var(--color-accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.entry.is-found .entry__body { animation: found 2.4s ease-out both; }

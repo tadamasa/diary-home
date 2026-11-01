@@ -3,6 +3,7 @@ import * as sync from './sync.js';
 import * as gemini from './gemini.js';
 import { exportData, importData } from './backup.js';
 import { moodOf, moodStyle, skyOf, SKY_LABEL, moonAge, moonName, moonPath, affectOf, setCustomAffect, clampAffect, hueOf, sortTags } from './mood.js';
+import { searchEntries, snippetHtml, markHtml, timeline, coFeelings, encodeSearch, decodeSearch } from './search.js';
 import { esc, today, nowTime, isDate, dateLabel, monthCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry, shiftDay, swipeDir } from './diary.js';
 
 // ---------- 状態 ----------
@@ -37,7 +38,7 @@ function setTitle(text, { back = false, sub = '' } = {}) {
 }
 
 function setTab(tab) {
-  for (const a of document.querySelectorAll('.tabbar__item')) {
+  for (const a of document.querySelectorAll('.tabbar__item, .tabbar__search')) {
     const on = a.dataset.tab === tab;
     a.classList.toggle('is-active', on);
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
@@ -391,12 +392,16 @@ function calendarHtml(date) {
 
 function entryHtml(e) {
   const feel = splitTags(e.feelings);
-  const tags = [...feel.map(t => `<span class="tag tag--feel" style="${moodStyle(moodOf([t]))}">${esc(t)}</span>`), ...splitTags(e.thinkings).map(t => `<span class="tag tag--think">${esc(t)}</span>`)].join('');
+  // タグをタップすると、そのタグの付いた記録をさがす
+  const tagLink = (kind, t) => `#search/${encodeURIComponent(encodeSearch({ [kind]: [t] }))}`;
+  const tags = [...feel.map(t => `<a class="tag tag--feel" href="${tagLink('feelings', t)}" style="${moodStyle(moodOf([t]))}">${esc(t)}</a>`), ...splitTags(e.thinkings).map(t => `<a class="tag tag--think" href="${tagLink('thinkings', t)}">${esc(t)}</a>`)].join('');
+  // 検索から来たときは、当たった語に印を付ける
+  const found = state.found && state.found.hits[e.id];
   return `
-    <article class="entry${state.justSaved === e.id ? ' is-new' : ''}" data-id="${esc(e.id)}" style="${moodStyle(moodOf(feel))}">
+    <article class="entry${state.justSaved === e.id ? ' is-new' : ''}${found ? ' is-found' : ''}" data-id="${esc(e.id)}" style="${moodStyle(moodOf(feel))}">
       <div class="entry__rail"><span class="entry__time">${esc(e.time)}</span>${orb(feel, 'orb--rail')}</div>
       <div class="entry__body card paper${feel.length ? ' has-mood' : ''}">
-        <p class="entry__text">${esc(e.text)}</p>
+        <p class="entry__text">${found ? markHtml(e.text, found) : esc(e.text)}</p>
         ${tags ? `<div class="tags">${tags}</div>` : ''}
         <div class="note__tools">
           <button class="btn btn--small btn--tinted" data-insight="${esc(e.id)}">知的アドバイス</button>
@@ -414,7 +419,7 @@ async function renderDay(arg) {
   // 月送りボタンで動かしたときだけ、選んだ日と違う月を表示したままにする
   if (!state.cal || !state.calMoved) state.cal = [Number(date.slice(0, 4)), Number(date.slice(5, 7))];
   state.calMoved = false;
-  setTitle('日記', { sub: daySub(date) });
+  setTitle('日記', { sub: daySub(date), back: !!state.found });
   const list = entriesOn(state.entries, date);
   const days = new Set(state.entries.map(e => e.date)).size;
   const feel = list.flatMap(e => splitTags(e.feelings));
@@ -437,6 +442,11 @@ async function renderDay(arg) {
     <details class="fold side side--news" id="fold-news"><summary>この日のニュース<small>Gemini</small></summary><div class="fold__body"><div class="card" id="news-box"><p class="small muted" style="margin:0">ボタンを押すとGeminiが検索します。送るのは日付だけです。</p></div><div class="actions"><button class="btn btn--tinted" id="news">主要ニュースを取得</button></div></div></details>
     <p class="list-section__footer">${days}日分の記録 ・ <span id="sync-line"></span></p>`;
   watchSync(document.getElementById('sync-line'));
+  if (state.found && state.found.focus) {
+    const el = $view.querySelector(`.entry[data-id="${CSS.escape(state.found.focus)}"]`);
+    state.found.focus = null;
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: 'auto', block: 'center' }), 60);
+  }
   if (state.justSaved) {
     const el = $view.querySelector('.entry.is-new');
     state.justSaved = null;
@@ -548,6 +558,144 @@ async function news(date) {
     btn.textContent = '取り直す';
   } catch (err) { box.innerHTML = `<p class="small" style="margin:0">${esc(err.message)}</p>`; }
   btn.disabled = false;
+}
+
+// ---------- さがす(過去の日記の検索) ----------
+// 記録はハブから全期間が端末に届いているので、端末の中だけで探す(圏外でも動き、何も送らない)
+const PAGE = 60;
+const srch = { q: '', feelings: [], thinkings: [], order: 'new', limit: PAGE, scroll: 0, results: [] };
+
+// 記録に実際に使われたタグ(シートに無い古いタグも含む)
+function usedTags(kind) {
+  const c = tagCounts(kind);
+  return orderedTags(kind, tagChoices(state.tags[kind].filter(t => c[t]), new Set(Object.keys(c))));
+}
+
+function searchChips(kind) {
+  const sel = srch[kind];
+  return usedTags(kind).map(n => `<button type="button" class="kind kind--${kind}${sel.includes(n) ? ' is-active' : ''}" data-skind="${kind}" data-stag="${esc(n)}" aria-pressed="${sel.includes(n)}"${kind === 'feelings' ? ` style="${moodStyle(moodOf([n]))}"` : ''}>${esc(n)}</button>`).join('')
+    || '<p class="small muted" style="margin:0">まだタグの付いた記録がありません。</p>';
+}
+
+// 時の帯: その言葉が、いつの自分に現れていたか。年ごとに12か月、濃さ=件数、色=その月のこころの平均
+function timelineHtml(results) {
+  const { years, cells } = timeline(results);
+  if (!years.length) return '';
+  const max = Math.max(...Object.values(cells).map(c => c.n));
+  const rows = years.map(y => `<div class="tl__row"><span class="tl__year">${y}</span>${Array.from({ length: 12 }, (_, i) => {
+    const ym = `${y}-${String(i + 1).padStart(2, '0')}`;
+    const c = cells[ym];
+    if (!c) return '<span class="tl__cell"></span>';
+    const m = moodOf(c.feelings);
+    const k = (0.35 + 0.65 * c.n / max).toFixed(2);
+    return `<button type="button" class="tl__cell is-hit${m ? '' : ' is-plain'}" data-ym="${ym}" style="${moodStyle(m)};--k:${k}" aria-label="${y}年${i + 1}月 ${c.n}件">${c.n > 1 ? `<small>${c.n}</small>` : ''}</button>`;
+  }).join('')}</div>`).join('');
+  return `<div class="card tl" aria-label="当たった記録の時期">
+    <div class="tl__row tl__months" aria-hidden="true"><span class="tl__year"></span>${Array.from({ length: 12 }, (_, i) => `<span>${i + 1}</span>`).join('')}</div>
+    ${rows}</div>`;
+}
+
+function resultHtml(r, prevDate) {
+  const e = r.e;
+  const feel = splitTags(e.feelings);
+  const tags = [...feel.map(t => `<span class="tag tag--feel${r.tagHits.has(t) ? ' is-hit' : ''}" style="${moodStyle(moodOf([t]))}">${esc(t)}</span>`), ...splitTags(e.thinkings).map(t => `<span class="tag tag--think${r.tagHits.has(t) ? ' is-hit' : ''}">${esc(t)}</span>`)].join('');
+  const head = e.date !== prevDate ? `<h3 class="hit__date" data-ym="${e.date.slice(0, 7)}">${dateLabel(e.date)}</h3>` : '';
+  return `${head}<a class="hit paper${feel.length ? ' has-mood' : ''}" href="#day/${e.date}" data-hit="${esc(e.id)}" style="${moodStyle(moodOf(feel))}">
+    <span class="hit__rail"><span class="entry__time">${esc(e.time)}</span>${orb(feel, 'orb--rail')}</span>
+    <span class="hit__body"><span class="hit__text">${snippetHtml(e.text, r.hits)}</span>${tags ? `<span class="tags">${tags}</span>` : ''}</span>
+  </a>`;
+}
+
+function updateSearch({ keepScroll = false } = {}) {
+  const box = document.getElementById('search-results');
+  if (!box) return;
+  const res = srch.results = searchEntries(state.entries, srch);
+  history.replaceState(null, '', `#search/${encodeURIComponent(encodeSearch(srch))}`);
+  for (const b of $view.querySelectorAll('[data-stag]')) {
+    const on = srch[b.dataset.skind].includes(b.dataset.stag);
+    b.classList.toggle('is-active', on);
+    b.setAttribute('aria-pressed', on);
+  }
+  document.getElementById('cnt-sf').textContent = srch.feelings.length ? ` ${srch.feelings.length}` : '';
+  document.getElementById('cnt-st').textContent = srch.thinkings.length ? ` ${srch.thinkings.length}` : '';
+  const active = srch.q.trim() || srch.feelings.length || srch.thinkings.length;
+  if (!active) {
+    const days = new Set(state.entries.map(e => e.date)).size;
+    const first = state.entries.reduce((m, e) => (!m || e.date < m ? e.date : m), '');
+    box.innerHTML = `<p class="list-section__footer">${state.entries.length}件の記録(${days}日分${first ? `、${dateLabel(first)}から` : ''})から探します。<br>
+      空白で区切ると「すべて含む」、<b>-語</b> でその語を含まないもの、<b>2024</b> や <b>2024年5月</b> でその時期に絞れます。ひらがなとカタカナは区別しません。記録はこの端末の中で探すので、圏外でも使えます。</p>`;
+    return;
+  }
+  if (!res.length) { box.innerHTML = '<p class="list-section__footer">見つかりませんでした。語を短くするか、絞り込みを外してみてください。</p>'; return; }
+  const days = new Set(res.map(r => r.e.date)).size;
+  const co = coFeelings(res, srch.feelings);
+  let prev = '';
+  const list = res.slice(0, srch.limit).map(r => { const h = resultHtml(r, prev); prev = r.e.date; return h; }).join('');
+  box.innerHTML = `
+    <div class="search-sum"><span><b>${res.length}</b>件 ・ ${days}日</span>
+      <div class="segmented" role="radiogroup" aria-label="並べ方">${[['new', '新しい順'], ['old', '古い順']].map(([k, l]) => `<button type="button" class="segmented__item${srch.order === k ? ' is-active' : ''}" role="radio" aria-checked="${srch.order === k}" data-sorder="${k}">${l}</button>`).join('')}</div></div>
+    ${timelineHtml(res)}
+    ${co.length ? `<div class="co"><span class="small muted">いっしょにあったこころ</span>${co.map(([f, n]) => `<button type="button" class="tag tag--feel co__tag" data-cof="${esc(f)}" style="${moodStyle(moodOf([f]))}">${esc(f)} <small>${n}</small></button>`).join('')}</div>` : ''}
+    <div class="hits">${list}</div>
+    ${res.length > srch.limit ? `<div class="actions"><button class="btn btn--tinted" id="s-more">さらに表示(残り${res.length - srch.limit}件)</button></div>` : ''}`;
+  box.querySelectorAll('[data-sorder]').forEach(b => b.addEventListener('click', () => { srch.order = b.dataset.sorder; srch.limit = PAGE; updateSearch(); }));
+  box.querySelectorAll('[data-cof]').forEach(b => b.addEventListener('click', () => { srch.feelings = [...srch.feelings, b.dataset.cof]; srch.limit = PAGE; updateSearch(); }));
+  const more = document.getElementById('s-more');
+  if (more) more.addEventListener('click', () => { srch.limit += PAGE * 2; updateSearch({ keepScroll: true }); });
+  box.querySelectorAll('.tl__cell[data-ym]').forEach(b => b.addEventListener('click', () => {
+    const ym = b.dataset.ym;
+    const idx = srch.results.findIndex(r => r.e.date.startsWith(ym));
+    if (idx >= srch.limit) { srch.limit = idx + PAGE; updateSearch(); }
+    const h = box.querySelector(`.hit__date[data-ym="${ym}"]`);
+    if (h) h.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  }));
+  // 当たった記録を開くと、その日のページで当たった語に印が付き、戻るでこの検索に帰れる
+  box.querySelectorAll('[data-hit]').forEach(a => a.addEventListener('click', () => {
+    const hits = {};
+    for (const r of srch.results) hits[r.e.id] = r.hits;
+    state.found = { hits, focus: a.dataset.hit };
+    srch.scroll = scrollY;
+    srch.restore = true;
+    state.calMoved = false;
+  }));
+  if (!keepScroll && document.activeElement && document.activeElement.id !== 's-q') scrollTo(0, 0);
+}
+
+function renderSearch(arg) {
+  setTab('search');
+  setTitle('さがす');
+  const back = srch.restore;
+  srch.restore = false;
+  if (arg) Object.assign(srch, decodeSearch(arg)); // タブから開いたときは前の検索のまま
+  if (!back) srch.limit = PAGE;
+  $view.innerHTML = `
+    <form class="search search--page" role="search" id="s-form">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="s-q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="ことば、タグ、2024年5月 など" aria-label="日記をさがす" value="${esc(srch.q)}">
+      <button type="button" class="search__clear" id="s-clear" aria-label="消す"${srch.q ? '' : ' hidden'}>×</button>
+    </form>
+    <details class="fold" id="fold-sf"${srch.feelings.length ? ' open' : ''}><summary>Feeling で絞る<small id="cnt-sf"></small></summary><div class="fold__body"><div class="kinds" style="padding-top:0">${searchChips('feelings')}</div></div></details>
+    <details class="fold" id="fold-st"${srch.thinkings.length ? ' open' : ''}><summary>Thinking で絞る<small id="cnt-st"></small></summary><div class="fold__body"><div class="kinds" style="padding-top:0">${searchChips('thinkings')}</div></div></details>
+    <div id="search-results"></div>`;
+  const input = document.getElementById('s-q');
+  const clear = document.getElementById('s-clear');
+  let t = null;
+  input.addEventListener('input', () => {
+    clear.hidden = !input.value;
+    clearTimeout(t);
+    t = setTimeout(() => { srch.q = input.value; srch.limit = PAGE; updateSearch(); }, 160);
+  });
+  document.getElementById('s-form').addEventListener('submit', e => { e.preventDefault(); input.blur(); srch.q = input.value; updateSearch(); });
+  clear.addEventListener('click', () => { input.value = ''; clear.hidden = true; srch.q = ''; updateSearch(); input.focus(); });
+  $view.querySelectorAll('[data-stag]').forEach(b => b.addEventListener('click', () => {
+    const k = b.dataset.skind, n = b.dataset.stag;
+    srch[k] = srch[k].includes(n) ? srch[k].filter(x => x !== n) : [...srch[k], n];
+    srch.limit = PAGE;
+    updateSearch();
+  }));
+  updateSearch({ keepScroll: true });
+  if (back) scrollTo(0, srch.scroll);
+  else if (!srch.q && !srch.feelings.length && !srch.thinkings.length) input.focus({ preventScroll: true });
 }
 
 // ---------- こころの色(タグの位置を動かす) ----------
@@ -753,9 +901,12 @@ async function route() {
   const [name, arg] = location.hash.replace(/^#/, '').split('/');
   const a = arg ? decodeURIComponent(arg) : '';
   if (name !== 'day') window.scrollTo(0, 0);
+  if (name !== 'day') state.found = null;
+  if (name !== 'day' && name !== 'search') srch.restore = false;
   watchSync(null);
   switch (name) {
     case 'day': return renderDay(a);
+    case 'search': return renderSearch(a);
     case 'settings': return renderSettings();
     default: return renderWrite(a);
   }
@@ -764,7 +915,7 @@ async function route() {
 document.getElementById('back').addEventListener('click', () => history.length > 1 ? history.back() : (location.hash = '#day'));
 addEventListener('hashchange', () => {
   // 日記タブ内で日付を変えたときは、カレンダーの位置を保つ
-  const keep = location.hash.startsWith('#day/');
+  const keep = location.hash.startsWith('#day/') && !(state.found && state.found.focus);
   const y = scrollY;
   route().then(() => { if (keep) scrollTo(0, y); });
 });
