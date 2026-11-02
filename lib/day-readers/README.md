@@ -9,14 +9,14 @@
 |---|---|
 | ライブラリ名(プロジェクト名) | DayReaders |
 | 識別子(呼ぶ側で使う名前) | `DayReaders` |
-| スクリプトID | (まだ。下の「公開する」の手順4で控えたものをここに書く) |
-| 版数 | (まだ。最初は 1) |
+| スクリプトID | `1AERbCrDNFVHKT1YDCTSensHNs4X8QrACyaS-p3xDFhqrUq2r7NGMuMwk` |
+| 版数 | 1(2026-11-02 公開) |
 
 使う側は、版を固定して追加します(「開発モード」は使わない)。ライブラリを直したら新しい版を作り、使う側を1つずつその版に上げます。
 
 | 使う側 | 使う関数 | 追加した版 |
 |---|---|---|
-| 日記ハブ(この repo の `hub/Code.gs`) | ensenForDate, booksForDate, filmsForDate, monthMarks | (まだ) |
+| 日記ハブ(この repo の `hub/Code.gs`) | ensenForDate, booksForDate, filmsForDate, monthMarks | 1(hub/appsscript.json に記載) |
 | 縁泉ハブ(tadamasa/ensen-home) | diaryForDate, booksForDate, filmsForDate, monthMarks | (これから) |
 | 日記v2(このMacの diary_gas_v2) | ensenForDate, booksForDate | (これから) |
 
