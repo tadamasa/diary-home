@@ -320,7 +320,7 @@ function agendaLine(ev) {
 async function loadAgenda(date) {
   const res = await side('calendar', date, state.calIds.length ? { ids: state.calIds } : {});
   const box = document.getElementById('agenda-box');
-  if (!box) return;
+  if (!box || box.dataset.day !== date) return; // 返事が届く前に別の日へ移っていたら捨てる
   if (res.ok && !Array.isArray(res.events)) { res.ok = false; res.error = '日記ハブがまだ古い版です'; }
   if (!res.ok) {
     const hint = /calendar|権限|permission|古い版|unknown action/i.test(res.error || '') ? '(日記ハブを新しい版で出し直し、カレンダーの権限を許可してください)' : '';
@@ -505,10 +505,10 @@ async function renderDay(arg) {
     </section>
     ${composing && !composing.id ? composerHtml() : ''}
     ${list.length ? `<div class="thread">${list.map(e => composing && composing.id === e.id ? composerHtml() : entryHtml(e)).join('')}</div>` : ''}
-    <details class="fold side side--agenda" id="fold-agenda" open><summary>この日の予定<small></small></summary><div class="fold__body"><div class="card" id="agenda-box"><p class="small muted" style="margin:0">読み込み中…</p></div><p class="side__hint">予定や縁の ＋ をタップすると、書いている本文に差し込みます。</p></div></details>
-    <details class="fold side side--ensen" id="fold-ensen" open><summary>この日の縁<small>縁泉</small></summary><div class="fold__body"><div class="card" id="ensen-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
-    <details class="fold side side--books" id="fold-books" open><summary>この日に読み終えた本<small>読書ハブ</small></summary><div class="fold__body"><div class="card" id="books-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
-    <details class="fold side side--films" id="fold-films" open><summary>この日に観た映画<small>映画ハブ</small></summary><div class="fold__body"><div class="card" id="films-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
+    <details class="fold side side--agenda" id="fold-agenda" open><summary>この日の予定<small></small></summary><div class="fold__body"><div class="card" id="agenda-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div><p class="side__hint">予定や縁の ＋ をタップすると、書いている本文に差し込みます。</p></div></details>
+    <details class="fold side side--ensen" id="fold-ensen" open><summary>この日の縁<small>縁泉</small></summary><div class="fold__body"><div class="card" id="ensen-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
+    <details class="fold side side--books" id="fold-books" open><summary>この日に読み終えた本<small>読書ハブ</small></summary><div class="fold__body"><div class="card" id="books-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
+    <details class="fold side side--films" id="fold-films" open><summary>この日に観た映画<small>映画ハブ</small></summary><div class="fold__body"><div class="card" id="films-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
     <details class="fold side side--news" id="fold-news"><summary>この日のニュース<small>Gemini</small></summary><div class="fold__body"><div class="card" id="news-box"><p class="small muted" style="margin:0">ボタンを押すとGeminiが検索します。送るのは日付だけです。</p></div><div class="actions"><button class="btn btn--tinted" id="news">主要ニュースを取得</button></div></div></details>
     <p class="list-section__footer">${days}日分の記録 ・ <span id="sync-line"></span></p>`;
   watchSync(document.getElementById('sync-line'));
@@ -547,7 +547,7 @@ async function side(kind, date, extra = {}) {
 async function loadEnsen(date) {
   const res = await side('ensen', date);
   const box = document.getElementById('ensen-box');
-  if (!box) return;
+  if (!box || box.dataset.day !== date) return; // 返事が届く前に別の日へ移っていたら捨てる
   if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">縁泉を読めませんでした: ${esc(res.error)}</p>`; return; }
   const parts = (res.events || []).map(ev => {
     const where = ev.place && ev.place !== ev.name ? ` <span class="muted small">・${esc(ev.place)}</span>` : '';
@@ -578,7 +578,7 @@ async function loadEnsen(date) {
 async function loadBooks(date) {
   const res = await side('books', date);
   const box = document.getElementById('books-box');
-  if (!box) return;
+  if (!box || box.dataset.day !== date) return; // 返事が届く前に別の日へ移っていたら捨てる
   if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">読書ハブを読めませんでした: ${esc(res.error)}</p>`; return; }
   box.innerHTML = res.books.length ? res.books.map(b => `
     <a class="book" href="${esc(b.url)}" target="_blank" rel="noopener">
@@ -590,7 +590,7 @@ async function loadBooks(date) {
 async function loadFilms(date) {
   const res = await side('films', date);
   const box = document.getElementById('films-box');
-  if (!box) return;
+  if (!box || box.dataset.day !== date) return; // 返事が届く前に別の日へ移っていたら捨てる
   if (res.ok && !Array.isArray(res.films)) { res.ok = false; res.error = '日記ハブを新しい版で出し直すと表示されます'; }
   if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">映画ハブを読めませんでした: ${esc(res.error)}</p>`; return; }
   box.innerHTML = res.films.length ? res.films.map(f => `
