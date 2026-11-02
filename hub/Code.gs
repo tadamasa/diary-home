@@ -321,195 +321,45 @@ function getCalendarForDate(dateStr) {
   }
 }
 
-// ========== 縁泉（ENSEN）連携：読み取り専用（日記v2 のコード.js と同じ処理） ==========
+// ========== その日のまわり(縁泉・読了本・観た映画・月の印): 読み取りのみ ==========
+// 読み方はライブラリ DayReaders(lib/day-readers/DayReaders.gs)にまとめた。縁泉ハブ・日記v2 も同じものを使う。
+// ここではスクリプト プロパティからシートIDとアプリURLを決めて渡すだけ。
+// ライブラリは「ライブラリ +」で版を固定して追加する(識別子 DayReaders)。手順は lib/day-readers/README.md。
 const ENSEN_SHEET_ID_DEFAULT = '1vKPwd3kM4RdD19PEWaCG1R6OuVJGxSjj2njlan6UBFA';
 const ENSEN_UI_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbzosCrpBeAfjQDSSxaXo9vFhxgcYTPRKyTz4m9VHMZwvWWMp9wUUWTund4G2PBsghQ/exec';
-
-function getEnsenForDate(dateStr) {
-  const props = PropertiesService.getScriptProperties();
-  const sheetId = props.getProperty('ENSEN_SHEET_ID') || ENSEN_SHEET_ID_DEFAULT;
-  const uiUrl = props.getProperty('ENSEN_UI_URL') || ENSEN_UI_URL_DEFAULT;
-  try {
-    const ss = SpreadsheetApp.openById(sheetId);
-    const sh = ss.getSheetByName('events');
-    const last = sh.getLastRow();
-    // B:ts … P:enrich（ts, recorded_ts, lat, lng, place_name, actant_type, actant_name, actant_id, verb, note, media_ref, star, source, tags, enrich）
-    const rows = last < 2 ? [] : sh.getRange(2, 2, last - 1, 15).getValues();
-    const events = [];
-    const homeMoves = [];
-    const promoted = {};
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      const m = String(r[14] || '').match(/"trace_id":"([^"]+)"/);
-      if (m) promoted[m[1]] = true;
-      const ts = r[0] instanceof Date ? Utilities.formatDate(r[0], TIMEZONE, "yyyy-MM-dd'T'HH:mm") : String(r[0] || '');
-      if (ts.substring(0, 10) !== dateStr) continue;
-      const time = ts.substring(11, 16);
-      const tags = String(r[13] || '');
-      if (tags.indexOf('自宅') !== -1) {
-        homeMoves.push({ time: time, kind: tags.indexOf('出発') !== -1 ? '出発' : '到着' });
-        continue;
-      }
-      events.push({ time: time, place: String(r[4] || ''), type: String(r[5] || ''), name: String(r[6] || ''), verb: String(r[8] || ''), note: String(r[9] || ''), media: String(r[10] || ''), source: String(r[12] || '') });
-    }
-    events.sort(function (a, b) { return a.time < b.time ? -1 : 1; });
-    homeMoves.sort(function (a, b) { return a.time < b.time ? -1 : 1; });
-    return { ok: true, uiUrl: uiUrl, events: events, homeMoves: homeMoves, traces: getEnsenTraces_(ss, dateStr, promoted) };
-  } catch (e) {
-    return { ok: false, uiUrl: uiUrl, error: String(e) };
-  }
-}
-
-// traces: trace_id, ts, recorded_ts, lat, lng, place_name, photo_key, source, thumb_b64
-function getEnsenTraces_(ss, dateStr, promoted) {
-  const sh = ss.getSheetByName('traces');
-  if (!sh || sh.getLastRow() < 2) return [];
-  const last = sh.getLastRow();
-  const tsCol = sh.getRange(2, 2, last - 1, 1).getValues();
-  const out = [];
-  for (let i = 0; i < tsCol.length; i++) {
-    const v = tsCol[i][0];
-    const ts = v instanceof Date ? Utilities.formatDate(v, TIMEZONE, "yyyy-MM-dd'T'HH:mm") : String(v || '');
-    if (ts.substring(0, 10) !== dateStr) continue;
-    const r = sh.getRange(i + 2, 1, 1, 9).getValues()[0];
-    out.push({ id: String(r[0]), time: ts.substring(11, 16), place: String(r[5] || ''), thumb: String(r[8] || ''), promoted: !!promoted[String(r[0])] });
-  }
-  out.sort(function (a, b) { return a.time < b.time ? -1 : 1; });
-  return out;
-}
-
-// ========== 読書ハブ連携：読み取り専用（日記v2 のコード.js と同じ処理） ==========
 const BOOKS_SHEET_ID_DEFAULT = '1WEsS95CKH7JPFuGf7BYzlTV-d6FyTVg0OCOymKHqsZg';
 const READING_APP_URL_DEFAULT = 'https://tadamasa.github.io/reading-memo/';
+const MOVIES_SHEET_ID_DEFAULT = '156oktIUuxKOcFZn0QYrx6ncY3AFiY-7DjgAIYbiRCm4';
+const MOVIE_APP_URL_DEFAULT = 'https://tadamasa.github.io/movie-memo/';
 
-function toDateStr_(v) {
-  return v instanceof Date ? Utilities.formatDate(v, TIMEZONE, 'yyyy-MM-dd') : String(v || '').substring(0, 10);
+function prop_(k, d) { return PropertiesService.getScriptProperties().getProperty(k) || d; }
+
+// ライブラリを追加する前にこの版を貼っても、同期は動き、その日のまわりだけが理由つきで空になる
+function readers_() {
+  if (typeof DayReaders === 'undefined') throw new Error('ライブラリ DayReaders が追加されていません(lib/day-readers/README.md)');
+  return DayReaders;
+}
+
+function getEnsenForDate(dateStr) {
+  const uiUrl = prop_('ENSEN_UI_URL', ENSEN_UI_URL_DEFAULT);
+  try {
+    const res = readers_().ensenForDate(prop_('ENSEN_SHEET_ID', ENSEN_SHEET_ID_DEFAULT), dateStr);
+    res.uiUrl = uiUrl;
+    return res;
+  } catch (e) { return { ok: false, uiUrl: uiUrl, error: String(e && e.message || e) }; }
 }
 
 function getBooksForDate(dateStr) {
-  const props = PropertiesService.getScriptProperties();
-  const sheetId = props.getProperty('BOOKS_SHEET_ID') || BOOKS_SHEET_ID_DEFAULT;
-  const appUrl = props.getProperty('READING_APP_URL') || READING_APP_URL_DEFAULT;
-  try {
-    const ss = SpreadsheetApp.openById(sheetId);
-    const sh = ss.getSheetByName('books');
-    const last = sh.getLastRow();
-    const rows = last < 2 ? [] : sh.getRange(2, 1, last - 1, 10).getValues();
-    const books = [];
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      if (String(r[3]).toLowerCase() === 'true' || String(r[6]) !== '読了') continue;
-      if (toDateStr_(r[9]) !== dateStr) continue;
-      books.push({ row: i + 2, id: String(r[0]), title: String(r[4] || ''), author: String(r[5] || ''), category: String(r[7] || '') });
-    }
-    if (books.length) {
-      const notes = readBookNotes_(ss, books);
-      books.forEach(function (b) {
-        try { b.cover = JSON.parse(sh.getRange(b.row, 11).getValue() || '{}').cover || ''; } catch (e) { b.cover = ''; }
-        b.note = notes[b.id] || '';
-        b.url = appUrl + '#book/' + encodeURIComponent(b.id);
-        delete b.row;
-      });
-    }
-    return { ok: true, books: books };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
+  try { return readers_().booksForDate(prop_('BOOKS_SHEET_ID', BOOKS_SHEET_ID_DEFAULT), dateStr, prop_('READING_APP_URL', READING_APP_URL_DEFAULT)); }
+  catch (e) { return { ok: false, error: String(e && e.message || e) }; }
 }
 
-function readBookNotes_(ss, books) {
-  const want = {};
-  books.forEach(function (b) { want[b.id] = true; });
-  const out = {};
-  const sh = ss.getSheetByName('notes');
-  if (!sh || sh.getLastRow() < 2) return out;
-  const rows = sh.getRange(2, 4, sh.getLastRow() - 1, 6).getValues(); // D:deleted … I:text
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const bookId = String(r[2]);
-    if (!want[bookId] || out[bookId] || String(r[0]).toLowerCase() === 'true') continue;
-    const text = String(r[5] || '').trim();
-    if (text) out[bookId] = text;
-  }
-  return out;
-}
-
-// ========== 映画ハブ連携：読み取り専用 ==========
-// films: id, rev, mtime, deleted, title, year, directors, status, tmdbId, json
-// views: id, rev, mtime, deleted, date, filmId, filmTitle, place, venue, score, text, json
-const MOVIES_SHEET_ID_DEFAULT = '156oktIUuxKOcFZn0QYrx6ncY3AFiY-7DjgAIYbiRCm4';
-const MOVIE_APP_URL_DEFAULT = 'https://tadamasa.github.io/movie-memo/';
-const PLACE_LABEL = { stream: '配信', theater: '映画館', tv: 'テレビ', disc: 'ディスク', other: 'その他' };
-
-/**
- * 指定日に観た映画(views の date が同じ日)を返す。年だけ・月だけの「思い出し」記録は含めない。
- * ポスターと監督は films の json から取る。各映画は映画メモアプリの #film/ID に飛べる。
- */
 function getFilmsForDate(dateStr) {
-  const props = PropertiesService.getScriptProperties();
-  const sheetId = props.getProperty('MOVIES_SHEET_ID') || MOVIES_SHEET_ID_DEFAULT;
-  const appUrl = props.getProperty('MOVIE_APP_URL') || MOVIE_APP_URL_DEFAULT;
-  try {
-    const ss = SpreadsheetApp.openById(sheetId);
-    const vs = ss.getSheetByName('views');
-    const last = vs.getLastRow();
-    const rows = last < 2 ? [] : vs.getRange(2, 1, last - 1, 11).getValues();
-    const views = [];
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      if (String(r[3]).toLowerCase() === 'true' || toDateStr_(r[4]) !== dateStr) continue;
-      views.push({ filmId: String(r[5]), title: String(r[6] || ''), place: PLACE_LABEL[String(r[7])] || String(r[7] || ''), venue: String(r[8] || ''), score: r[9] === '' ? '' : String(r[9]), text: String(r[10] || '') });
-    }
-    if (views.length) {
-      const fs = ss.getSheetByName('films');
-      const fl = fs.getLastRow();
-      const ids = fl < 2 ? [] : fs.getRange(2, 1, fl - 1, 1).getValues();
-      const want = {};
-      views.forEach(function (v) { want[v.filmId] = true; });
-      const info = {};
-      for (let i = 0; i < ids.length; i++) {
-        const id = String(ids[i][0]);
-        if (!want[id] || info[id]) continue;
-        const r = fs.getRange(i + 2, 1, 1, 10).getValues()[0];
-        let j = {};
-        try { j = JSON.parse(r[9] || '{}'); } catch (e) { j = {}; }
-        info[id] = { title: String(r[4] || ''), year: String(r[5] || ''), directors: String(r[6] || ''), poster: j.posterPath ? 'https://image.tmdb.org/t/p/w185' + j.posterPath : '', genres: (j.genres || []).slice(0, 2).join('・') };
-      }
-      views.forEach(function (v) {
-        const f = info[v.filmId] || {};
-        v.title = f.title || v.title;
-        v.year = f.year || '';
-        v.directors = f.directors || '';
-        v.poster = f.poster || '';
-        v.genres = f.genres || '';
-        v.url = appUrl + '#film/' + encodeURIComponent(v.filmId);
-      });
-    }
-    return { ok: true, films: views };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
+  try { return readers_().filmsForDate(prop_('MOVIES_SHEET_ID', MOVIES_SHEET_ID_DEFAULT), dateStr, prop_('MOVIE_APP_URL', MOVIE_APP_URL_DEFAULT)); }
+  catch (e) { return { ok: false, error: String(e && e.message || e) }; }
 }
 
-// ========== カレンダーの印：月ごとに、本を読み終えた日・映画を観た日 ==========
 function getMonthMarks(ym) {
-  if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, error: 'bad month' };
-  const props = PropertiesService.getScriptProperties();
-  const out = { ok: true, month: ym, books: [], films: [] };
-  const pick = (rows, dateCol, keep) => {
-    const set = {};
-    rows.forEach(function (r) { const d = toDateStr_(r[dateCol]); if (d.length === 10 && d.substring(0, 7) === ym && keep(r)) set[d] = true; });
-    return Object.keys(set).sort();
-  };
-  try {
-    const sh = SpreadsheetApp.openById(props.getProperty('BOOKS_SHEET_ID') || BOOKS_SHEET_ID_DEFAULT).getSheetByName('books');
-    const rows = sh.getLastRow() < 2 ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 10).getValues();
-    out.books = pick(rows, 9, function (r) { return String(r[3]).toLowerCase() !== 'true' && String(r[6]) === '読了'; });
-  } catch (e) { out.booksError = String(e); }
-  try {
-    const sh = SpreadsheetApp.openById(props.getProperty('MOVIES_SHEET_ID') || MOVIES_SHEET_ID_DEFAULT).getSheetByName('views');
-    const rows = sh.getLastRow() < 2 ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues();
-    out.films = pick(rows, 4, function (r) { return String(r[3]).toLowerCase() !== 'true'; });
-  } catch (e) { out.filmsError = String(e); }
-  return out;
+  try { return readers_().monthMarks(prop_('BOOKS_SHEET_ID', BOOKS_SHEET_ID_DEFAULT), prop_('MOVIES_SHEET_ID', MOVIES_SHEET_ID_DEFAULT), ym); }
+  catch (e) { return { ok: false, error: String(e && e.message || e) }; }
 }

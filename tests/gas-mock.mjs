@@ -28,6 +28,7 @@ function makeBook() {
       sh.api = {
         getRange: range,
         getLastRow: lastRow,
+        getLastColumn: () => Math.max(0, ...sh.rows.slice(0, lastRow()).map(x => (x || []).filter(v => v !== undefined).length)),
         getMaxRows: () => sh.maxRows,
         insertRowsAfter: (_, n) => { sh.maxRows += n; },
         setFrozenRows: n => { sh.frozen = n; },
@@ -43,7 +44,16 @@ function makeBook() {
   return ss;
 }
 
-export function loadHub() {
+// ライブラリ DayReaders(lib/day-readers)を、呼ぶ側と同じ SpreadsheetApp・Utilities で別の場所に読み込む。
+// Apps Script と同じく、呼ぶ側からは DayReaders.関数名 で見える
+export function loadReaders(ctx) {
+  const lib = { SpreadsheetApp: ctx.SpreadsheetApp, Utilities: ctx.Utilities, Date, Math, JSON, String, Number, Array, Object, encodeURIComponent };
+  vm.createContext(lib);
+  vm.runInContext(fs.readFileSync(new URL('../lib/day-readers/DayReaders.gs', import.meta.url), 'utf8'), lib);
+  return lib;
+}
+
+export function loadHub({ withReaders = true } = {}) {
   const diary = makeBook();
   const core = diary.insertSheet('CoreData');
   core.appendRow(['Date', 'Time', 'Text', 'Feelings', 'Thinkings']);
@@ -80,12 +90,13 @@ export function loadHub() {
       getUuid: () => `0000${(++uuid).toString(16).padStart(4, '0')}-1111-2222-3333-444455556666`,
       formatDate: (d, _tz, f) => {
         const p = n => String(n).padStart(2, '0');
-        return f.replace('yyyy', d.getFullYear()).replace('MM', p(d.getMonth() + 1)).replace('dd', p(d.getDate())).replace('HH', p(d.getHours())).replace('mm', p(d.getMinutes()));
+        return f.replace(/'([^']*)'/g, '$1').replace('yyyy', d.getFullYear()).replace('MM', p(d.getMonth() + 1)).replace('dd', p(d.getDate())).replace('HH', p(d.getHours())).replace('mm', p(d.getMinutes()));
       },
     },
     Logger: { log() {} },
     Date, Math, JSON, String, Number, Array, Object,
   };
+  if (withReaders) ctx.DayReaders = loadReaders(ctx);
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(new URL('../hub/Code.gs', import.meta.url), 'utf8'), ctx);
   ctx.setup();
