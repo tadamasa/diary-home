@@ -96,3 +96,17 @@ export function swipeDir(dx, dy, ms) {
   if (ms > 600 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return 0;
   return dx < 0 ? 1 : -1;
 }
+
+// その日を含む週(日曜はじまり)の7日。月をまたいでよい
+export function weekCells(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  const w = new Date(y, m - 1, d).getDay();
+  return Array.from({ length: 7 }, (_, i) => today(new Date(y, m - 1, d - w + i)));
+}
+
+// 本文のカーソル位置 [a, z] に1行を差し込む。前後に改行がなければ足す。返すのは新しい本文と差し込んだ後のカーソル位置
+export function insertLine(text, [a, z], line) {
+  const before = text.slice(0, a), after = text.slice(z);
+  const ins = `${before && !before.endsWith('\n') ? '\n' : ''}${line}${after.startsWith('\n') ? '' : '\n'}`;
+  return { text: before + ins + after, caret: before.length + ins.length };
+}

@@ -126,6 +126,29 @@ test('その日の予定を、表示中のカレンダーから時刻順に返�
   assert.equal(hub.post({ token: 'x', action: 'calendar', date: '2026-10-30' }).error, 'unauthorized');
 });
 
+test('予定: アプリで選んだカレンダーだけから読み、一覧は主カレンダーと表示中を先に返す', () => {
+  const hub = loadHub();
+  const d = h => new Date(2026, 9, 30, h);
+  hub.calendar.calendars.push(
+    { id: 'me@example.com', name: '自分', primary: true, events: [{ title: '散歩', start: d(7), end: d(8) }] },
+    { id: 'work', name: '仕事', events: [{ title: '定例', start: d(10), end: d(11) }] },
+    { id: 'jp', name: '祝日', selected: false, events: [{ title: '祝日', start: d(0), end: d(0), allDay: true }] },
+  );
+  const pick = hub.post({ token: hub.token, action: 'calendar', date: '2026-10-30', ids: ['jp', 'work', 'nai'] });
+  assert.deepEqual(pick.events.map(e => e.title), ['祝日', '定例']);
+  assert.equal(pick.chosen, 3);
+  // 選んでいなければ、Googleで表示中のもの
+  const def = hub.post({ token: hub.token, action: 'calendar', date: '2026-10-30', ids: [] });
+  assert.deepEqual(def.events.map(e => e.title), ['散歩', '定例']);
+  // スクリプト プロパティでの絞り込みも、アプリで選んでいないときは効く
+  hub.props.CALENDAR_IDS = 'jp';
+  assert.deepEqual(hub.post({ token: hub.token, action: 'calendar', date: '2026-10-30' }).events.map(e => e.title), ['祝日']);
+  const list = hub.post({ token: hub.token, action: 'calendars' });
+  assert.equal(list.ok, true);
+  assert.deepEqual(list.calendars.map(c => [c.id, c.shown, c.primary]), [['me@example.com', true, true], ['work', true, false], ['jp', false, false]]);
+  assert.equal(hub.post({ token: 'x', action: 'calendars' }).error, 'unauthorized');
+});
+
 test('その日に観た映画を映画ハブから返す(年だけの記録は含めない)', () => {
   const hub = loadHub();
   const VH = ['id', 'rev', 'mtime', 'deleted', 'date', 'filmId', 'filmTitle', 'place', 'venue', 'score', 'text', 'json'];

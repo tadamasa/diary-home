@@ -75,7 +75,7 @@ export function loadHub({ withReaders = true } = {}) {
   // カレンダー: { calendars: [{ name, color, hidden, selected, events: [{ title, start: Date, end: Date, allDay, location }] }] }
   const calendar = { calendars: [] };
   const calApi = c => ({
-    getName: () => c.name, getColor: () => c.color || '#888', isHidden: () => !!c.hidden, isSelected: () => c.selected !== false,
+    getId: () => c.id || c.name, getName: () => c.name, isMyPrimaryCalendar: () => !!c.primary, getColor: () => c.color || '#888', isHidden: () => !!c.hidden, isSelected: () => c.selected !== false,
     getEventsForDay: day => c.events.filter(e => e.start.toDateString() === day.toDateString()).map(e => ({
       getTitle: () => e.title, getStartTime: () => e.start, getEndTime: () => e.end, isAllDayEvent: () => !!e.allDay, getLocation: () => e.location || '',
     })),
