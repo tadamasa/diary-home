@@ -43,7 +43,7 @@ Code.gs を貼り替えて保存したら、「デプロイ」→「デプロイ
 | `BOOKS_SHEET_ID` / `READING_APP_URL` | 読書ハブと読書メモアプリ |
 | `MOVIES_SHEET_ID` / `MOVIE_APP_URL` | 映画ハブ(156oktIU…)と映画メモアプリ |
 
-| `CALENDAR_IDS` | (なし)= Googleカレンダーで表示中のカレンダー全部。カンマ区切りのIDで絞れる |
+| `CALENDAR_IDS` | (なし)= Googleカレンダーで表示中のカレンダー全部。カンマ区切りのIDで絞れる。アプリの設定「Googleカレンダー」で選ぶと、そちらが優先される |
 
 縁泉・読書ハブ・映画ハブ・Googleカレンダーは読むだけで、書き込みません。
 

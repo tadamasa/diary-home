@@ -129,10 +129,17 @@ svg.ic { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-wid
 .side--books { --side: #4f46e5; }
 .side--news { --side: #15803d; }
 .side--films { --side: #be123c; }
-@media (prefers-color-scheme: dark) { .side--ensen { --side: #fbbf24; } .side--books { --side: #a5b4fc; } .side--news { --side: #86efac; } .side--films { --side: #fda4af; } }
+.side--agenda { --side: #0369a1; }
+@media (prefers-color-scheme: dark) { .side--ensen { --side: #fbbf24; } .side--books { --side: #a5b4fc; } .side--news { --side: #86efac; } .side--films { --side: #fda4af; } .side--agenda { --side: #7dd3fc; } }
 .side > summary small { color: var(--side); }
 .side .card { background-color: color-mix(in srgb, var(--side) 7%, var(--bg-grouped-secondary)); }
-.ev { padding: var(--space-1) 0; }
+.ev { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-1) 0; }
+.ev__main { flex: 1; min-width: 0; }
+.ev__add { flex: none; width: 32px; height: 32px; margin: -4px -6px 0 0; border-radius: 50%; color: var(--side); font-size: 18px; }
+.ev__add:active { background: var(--bg-fill-tertiary); }
+.ev__add.is-added { font-size: 0; }
+.ev__add.is-added::after { content: "✓"; font-size: 15px; }
+.side__hint { margin: var(--space-2) var(--space-4) 0; font-size: 12px; color: var(--color-label-secondary); }
 .ev__time { font-size: 12px; font-weight: 600; color: var(--side); font-variant-numeric: tabular-nums; }
 .ev__verb { font-size: 13px; color: var(--side); }
 .traces { display: flex; gap: var(--space-2); overflow-x: auto; padding: var(--space-1) 0; scrollbar-width: none; }
@@ -238,11 +245,21 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .cal { background-color: color-mix(in srgb, var(--bg-grouped-secondary) 88%, transparent); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
 .cal__label { font-family: var(--serif); font-size: 19px; font-weight: 600; display: inline-flex; align-items: baseline; gap: 6px; }
 .cal__label small { font-family: var(--font-sans); font-size: 12px; font-weight: 400; color: var(--color-label-secondary); }
-.cal__grid { gap: 4px; }
-.cal__cell { flex-direction: column; justify-content: flex-start; gap: 3px; padding-top: 6px; border-radius: 12px; aspect-ratio: auto; min-height: 52px; max-width: none; font-size: 15px; background: none; transition: transform .15s, background-color .3s; }
+/* 縦を詰める: 1マス40px(週の行は6行でも250px弱)。見出しのボタンも36pxに */
+.cal { padding: 2px var(--space-2) var(--space-2); }
+.cal__nav { min-height: 36px; min-width: 40px; }
+.cal__navs { display: inline-flex; }
+.cal__label { min-height: 36px; padding: 0 var(--space-2); border-radius: var(--r-capsule); color: var(--color-label); }
+.cal__label:active { background: var(--bg-fill-tertiary); }
+.cal__fold { font-family: var(--font-sans); font-size: 12px; color: var(--color-label-secondary); margin-left: 2px; }
+.cal__week span { padding: 0 0 2px; font-size: 10px; }
+.cal__grid { gap: 2px; }
+.cal__cell { flex-direction: column; justify-content: flex-start; gap: 2px; padding-top: 3px; border-radius: 10px; aspect-ratio: auto; min-height: 40px; max-width: none; font-size: 15px; background: none; transition: transform .15s, background-color .3s; }
+.cal__cell.is-other .cal__num { color: var(--color-label-secondary); font-size: 12px; }
+.cal--week .cal__cell { min-height: 44px; }
 .cal__cell:active { transform: scale(.92); }
 .cal__cell.has-record::after { display: none; }
-.cal__num { line-height: 20px; }
+.cal__num { line-height: 18px; }
 /* こころの色: 日付の下の細いバー。その日のFeelingを並べた分だけ区切る */
 .cal__bar { display: flex; gap: 1px; width: 62%; height: 4px; border-radius: 2px; overflow: hidden; }
 .cal__bar i { flex: 1; background-color: var(--mood-ink); }
@@ -253,7 +270,7 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .dot--book { background-color: #4f46e5; }
 .dot--film { background-color: #be123c; }
 @media (prefers-color-scheme: dark) { .dot--book { background-color: #a5b4fc; } .dot--film { background-color: #fda4af; } }
-.cal__legend { display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-2); font-size: 11px; color: var(--color-label-secondary); }
+.cal__legend { display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: 2px; font-size: 10px; color: var(--color-label-secondary); }
 .cal__legend span { display: inline-flex; align-items: center; gap: 4px; }
 .cal__cell.is-today .cal__num { color: var(--color-accent); font-weight: 700; }
 .cal__cell.is-today { color: var(--color-label); }
@@ -311,13 +328,7 @@ body { background-color: var(--bg-grouped); position: relative; isolation: isola
 .segmented--wide .segmented__item { flex: 1; font-size: 14px; }
 .segmented-wrap { padding: 0 var(--space-4) var(--space-3); }
 
-/* その日の予定(シート) */
-.cal-open { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--hit); color: var(--color-accent); font-size: 15px; }
-.cal-open .ic { width: 20px; height: 20px; }
-.agenda { max-height: 78vh; overflow: auto; animation: sheet-in var(--dur-base) var(--ease-ios); }
-.agenda__head { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-4) var(--space-2); }
-.agenda__head h2 { font-family: var(--serif); font-size: 19px; margin: 0; }
-.agenda__body { padding: 0 var(--space-4) var(--space-6, 24px); }
+/* その日の予定(日記タブの中、タップで本文に差し込む) */
 .agenda__list { list-style: none; margin: 0; padding: 0; border-radius: var(--r-card); overflow: hidden; background: var(--bg-grouped-secondary); }
 .agenda__list li + li { border-top: var(--hairline) solid var(--color-separator); }
 .agenda__ev { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 56px; padding: var(--space-2) var(--space-3); text-align: left; }
@@ -392,3 +403,24 @@ a.tag--think { color: var(--color-label-secondary); }
 /* 検索から開いた記録は、しばらく縁が光る */
 @keyframes found { 0%, 60% { box-shadow: 0 0 0 2px var(--color-accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
 .entry.is-found .entry__body { animation: found 2.4s ease-out both; }
+
+/* 書く欄: その日の見出しのすぐ下(直すときはその記録の場所)に開く */
+.composer { margin: var(--space-3) var(--space-4) 0; animation: ink .45s var(--ease-ios, ease-out) both; }
+.thread .composer { margin: var(--space-3) 0 0 var(--space-2); position: relative; z-index: 1; }
+.composer__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: 0 var(--space-1) var(--space-2); }
+.composer__title { font-family: var(--serif); font-size: 16px; font-weight: 600; }
+.composer__time { display: inline-flex; align-items: center; gap: var(--space-2); }
+.composer__time input { font-size: 16px; min-height: 36px; padding: 0 var(--space-2); border-radius: 8px; background: var(--bg-fill-tertiary); color: var(--color-label); border: 0; font-variant-numeric: tabular-nums; -webkit-appearance: none; appearance: none; }
+.composer > .card { margin: 0; }
+.composer .paper .field--note { min-height: 150px; }
+.composer .fold > summary { margin: 0; }
+.composer .actions { padding-left: 0; padding-right: 0; }
+.draft-link { display: block; margin-top: var(--space-1); color: var(--color-accent); }
+
+/* 設定: 予定を読むカレンダー */
+.gcal { padding: var(--space-1) var(--space-3); }
+.gcal__row { display: flex; align-items: center; gap: var(--space-3); min-height: var(--hit); }
+.gcal__row + .gcal__row { border-top: var(--hairline) solid var(--color-separator); }
+.gcal__row input { width: 20px; height: 20px; accent-color: var(--color-accent); flex: none; }
+.gcal__sw { flex: none; width: 12px; height: 12px; border-radius: 4px; }
+.gcal__name { flex: 1; min-width: 0; }

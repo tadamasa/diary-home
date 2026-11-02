@@ -4,7 +4,7 @@ import * as gemini from './gemini.js';
 import { exportData, importData } from './backup.js';
 import { moodOf, moodStyle, skyOf, SKY_LABEL, moonAge, moonName, moonPath, affectOf, setCustomAffect, clampAffect, hueOf, sortTags } from './mood.js';
 import { searchEntries, snippetHtml, markHtml, timeline, coFeelings, encodeSearch, decodeSearch } from './search.js';
-import { esc, today, nowTime, isDate, dateLabel, monthCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry, shiftDay, swipeDir } from './diary.js';
+import { esc, today, nowTime, isDate, dateLabel, monthCells, weekCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry, shiftDay, swipeDir, insertLine } from './diary.js';
 
 // ---------- 状態 ----------
 const state = {
@@ -14,8 +14,12 @@ const state = {
   cal: null, // [年, 月] 日記タブで表示中の月
   side: {}, // 日付ごとの縁泉・読了本(開いている間だけ覚える)
   marks: {}, // 月ごとの読了本・映画の日 { 'YYYY-MM': { books: Set, films: Set } }
+  compose: null, // 書く欄を開いている日 { date, id }
+  draft: null, // 書きかけ(meta draft と同じもの)
+  calIds: [], // 予定を読むGoogleカレンダー(空ならハブの既定)
+  calWeek: false, // カレンダーを選んだ日の週だけに畳む
 };
-const form = { id: null, datetime: '', text: '', feelings: new Set(), thinkings: new Set() };
+const form = { id: null, datetime: '', text: '', feelings: new Set(), thinkings: new Set(), caret: null };
 
 const $view = document.getElementById('view');
 
@@ -50,6 +54,9 @@ async function load() {
   setCustomAffect(affect);
   state.affect = affect || {};
   state.tagOrder = (await db.getMeta('tagOrder')) || 'color';
+  state.calIds = (await db.getMeta('calendarIds')) || [];
+  state.calWeek = !!(await db.getMeta('calWeek'));
+  state.draft = await db.getMeta('draft');
   state.entries = entries;
   state.tags = tags || { feelings: [], thinkings: [] };
   state.prompts = prompts || {};
@@ -109,12 +116,24 @@ function circumplex(feelings) {
     ${dots}<circle cx="${(all.v * 26).toFixed(1)}" cy="${(-all.a * 26).toFixed(1)}" r="2" class="cx__mean"/></svg>`;
 }
 
-// ---------- 記録 ----------
+// ---------- 書く(その日のページの中で) ----------
+// 書く欄は、日記タブの選んだ日の見出しのすぐ下に開く。下に並ぶ予定・縁泉・本・映画を見ながら書ける。
+// state.compose = { date, id }(id があれば直している記録)。書きかけは meta draft に1つだけ残す
 let draftTimer = null;
-function saveDraft() {
-  clearTimeout(draftTimer);
-  draftTimer = setTimeout(() => db.setMeta('draft', { id: form.id, datetime: form.datetime, text: form.text, feelings: [...form.feelings], thinkings: [...form.thinkings] }), 400);
+function snapshot() {
+  return { id: form.id, datetime: form.datetime, text: form.text, feelings: [...form.feelings], thinkings: [...form.thinkings] };
 }
+function saveDraft() {
+  state.draft = snapshot();
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => db.setMeta('draft', state.draft), 400);
+}
+function clearDraft() {
+  clearTimeout(draftTimer);
+  state.draft = null;
+  return db.setMeta('draft', null);
+}
+const draftDate = () => (state.draft && (state.draft.text || '').trim() ? state.draft.datetime.slice(0, 10) : '');
 
 function resetForm(date) {
   form.id = null;
@@ -122,6 +141,7 @@ function resetForm(date) {
   form.text = '';
   form.feelings = new Set();
   form.thinkings = new Set();
+  form.caret = null;
 }
 
 function fillForm(e) {
@@ -130,6 +150,24 @@ function fillForm(e) {
   form.text = e.text || '';
   form.feelings = new Set(splitTags(e.feelings));
   form.thinkings = new Set(splitTags(e.thinkings));
+  form.caret = null;
+}
+
+// その日に書き始める / 記録を直し始める。別の書きかけがあれば、捨てるか確かめる
+function openCompose(date, id = null) {
+  const d = state.draft;
+  const dd = draftDate();
+  const same = dd && dd === date && (d.id || null) === id;
+  if (dd && !same) {
+    if (!confirm(`${dateLabel(dd)}に書きかけの記録があります。それを捨てて、こちらを書きますか。`)) { location.hash = `#day/${dd}`; return false; }
+    clearDraft();
+  }
+  const e = id ? state.entries.find(x => x.id === id) : null;
+  if (same) Object.assign(form, d, { feelings: new Set(d.feelings), thinkings: new Set(d.thinkings), caret: null });
+  else if (e) fillForm(e);
+  else resetForm(date);
+  state.compose = { date, id: e ? e.id : null };
+  return true;
 }
 
 // タグごとの使った回数
@@ -149,46 +187,42 @@ function chipsHtml(kind) {
     || '<p class="small muted" style="margin:0">タグはまだありません(設定で足せます)</p>';
 }
 
-async function renderWrite(arg) {
-  setTab('write');
-  const editing = arg && !isDate(arg) ? state.entries.find(e => e.id === arg) : null;
-  if (editing) fillForm(editing);
-  else if (isDate(arg)) { resetForm(arg); db.setMeta('draft', null); }
-  else if (!form.id && !form.text) {
-    const d = await db.getMeta('draft');
-    if (d && (d.text || '').trim()) { Object.assign(form, d, { feelings: new Set(d.feelings), thinkings: new Set(d.thinkings) }); } else resetForm();
-  }
-  const sky = skyOf();
-  const fdate = (form.datetime || '').slice(0, 10);
-  setTitle(form.id ? '記録を直す' : `${SKY_LABEL[sky]}の記録`, { back: !!form.id, sub: isDate(fdate) ? daySub(fdate) : '' });
+function composerHtml() {
+  const editing = !!form.id;
+  const date = form.datetime.slice(0, 10);
   const count = k => form[k].size ? ` ${form[k].size}` : '';
-  $view.innerHTML = `
-    <div class="card record">
-      <div class="row"><label for="dt">日時</label><input id="dt" type="datetime-local" value="${esc(form.datetime)}"></div>
-      <div class="row"><button type="button" class="cal-open" id="cal-open"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>この日の予定を見る</button></div>
-    </div>
-    <div class="card paper" id="paper" style="margin-top:var(--space-3);${moodStyle(moodOf([...form.feelings]))}">
-      <textarea id="text" class="field field--note" placeholder="現在の意識を言語化…" aria-label="日記の本文">${esc(form.text)}</textarea>
-    </div>
-    <details class="fold" id="fold-f"><summary><span class="sum-orb">${orb([...form.feelings])}Feeling</span><small id="cnt-feelings">${count('feelings')}</small></summary><div class="fold__body"><div class="kinds" style="padding-top:0">${chipsHtml('feelings')}</div></div></details>
-    <details class="fold" id="fold-t"><summary>Thinking<small id="cnt-thinkings">${count('thinkings')}</small></summary><div class="fold__body"><div class="kinds" style="padding-top:0">${chipsHtml('thinkings')}</div></div></details>
-    <div class="actions">
-      ${form.id || form.text ? '<button class="btn btn--tinted" id="cancel">取消</button>' : ''}
-      ${form.id ? '<button class="btn btn--plain btn--destructive" id="remove">削除</button>' : ''}
-      <button class="btn btn--prominent" id="save">${form.id ? '上書き保存' : '保存'}</button>
-    </div>
-    <p class="list-section__footer" id="sync-line"></p>`;
-  watchSync(document.getElementById('sync-line'));
+  const hint = date === today() ? `${SKY_LABEL[skyOf()]}の意識を言語化…` : 'この日のことを、下の予定や縁を見ながら思い出して…';
+  return `
+    <section class="composer${editing ? ' composer--edit' : ''}" id="composer" aria-label="${editing ? '記録を直す' : 'この日に書く'}">
+      <div class="composer__head">
+        <span class="composer__title">${editing ? '記録を直す' : 'この日に書く'}</span>
+        <label class="composer__time"><span class="small muted">時刻</span><input id="c-time" type="time" value="${esc(form.datetime.slice(11, 16))}"></label>
+      </div>
+      <div class="card paper${form.feelings.size ? ' has-mood' : ''}" id="paper" style="${moodStyle(moodOf([...form.feelings]))}">
+        <textarea id="text" class="field field--note" placeholder="${esc(hint)}" aria-label="日記の本文">${esc(form.text)}</textarea>
+      </div>
+      <details class="fold" id="fold-f"><summary><span class="sum-orb">${orb([...form.feelings])}Feeling</span><small id="cnt-feelings">${count('feelings')}</small></summary><div class="fold__body"><div class="kinds" style="padding-top:0">${chipsHtml('feelings')}</div></div></details>
+      <details class="fold" id="fold-t"><summary>Thinking<small id="cnt-thinkings">${count('thinkings')}</small></summary><div class="fold__body"><div class="kinds" style="padding-top:0">${chipsHtml('thinkings')}</div></div></details>
+      <div class="actions">
+        <button class="btn btn--tinted" id="cancel">${editing ? 'やめる' : '取消'}</button>
+        ${editing ? '<button class="btn btn--plain btn--destructive" id="remove">削除</button>' : ''}
+        <button class="btn btn--prominent" id="save">${editing ? '上書き保存' : '保存'}</button>
+      </div>
+    </section>`;
+}
 
+function bindComposer(date) {
   const text = document.getElementById('text');
-  text.addEventListener('input', () => { form.text = text.value; saveDraft(); });
-  document.getElementById('dt').addEventListener('change', e => {
-    form.datetime = e.target.value;
-    if (isDate(form.datetime.slice(0, 10))) document.getElementById('nav-sub').innerHTML = daySub(form.datetime.slice(0, 10));
-    saveDraft();
+  if (!text) return;
+  const keepCaret = () => { form.caret = [text.selectionStart, text.selectionEnd]; };
+  text.addEventListener('input', () => { form.text = text.value; keepCaret(); saveDraft(); });
+  text.addEventListener('blur', keepCaret);
+  text.addEventListener('keyup', keepCaret);
+  text.addEventListener('pointerup', keepCaret);
+  document.getElementById('c-time').addEventListener('change', e => {
+    if (/^\d{2}:\d{2}/.test(e.target.value)) { form.datetime = `${date}T${e.target.value.slice(0, 5)}`; saveDraft(); }
   });
-  document.getElementById('paper').classList.toggle('has-mood', form.feelings.size > 0);
-  $view.querySelectorAll('[data-tag]').forEach(b => b.addEventListener('click', () => {
+  $view.querySelectorAll('#composer [data-tag]').forEach(b => b.addEventListener('click', () => {
     const set = form[b.dataset.kind];
     const n = b.dataset.tag;
     if (set.has(n)) set.delete(n); else set.add(n);
@@ -206,86 +240,66 @@ async function renderWrite(arg) {
     }
     saveDraft();
   }));
-  const cancel = document.getElementById('cancel');
-  if (cancel) cancel.addEventListener('click', async () => {
-    const back = form.id ? state.entries.find(e => e.id === form.id) : null;
-    resetForm();
-    await db.setMeta('draft', null);
-    if (back) location.hash = `#day/${back.date}`; else renderWrite();
+  document.getElementById('cancel').addEventListener('click', async () => {
+    if (!form.id && form.text.trim() && !confirm('書きかけを捨てますか。')) return;
+    await closeCompose(date);
   });
   const remove = document.getElementById('remove');
   if (remove) remove.addEventListener('click', () => removeEntry(form.id));
-  document.getElementById('cal-open').addEventListener('click', () => openAgenda(text));
-  document.getElementById('save').addEventListener('click', saveEntry);
-  if (!form.id && !form.text) text.focus({ preventScroll: true });
+  document.getElementById('save').addEventListener('click', () => saveEntry(date));
 }
 
-// ---------- その日の予定(Googleカレンダー、日記ハブ経由で読むだけ) ----------
-function agendaLine(ev) {
-  return ev.allDay ? `終日 ${ev.title}` : `${ev.start}〜${ev.end} ${ev.title}`;
+async function closeCompose(date) {
+  state.compose = null;
+  resetForm(date);
+  await clearDraft();
+  rerenderDay(date);
 }
 
-async function openAgenda(textarea) {
-  const date = (document.getElementById('dt').value || form.datetime).slice(0, 10);
-  if (!isDate(date)) return;
-  const pos = [textarea.selectionStart, textarea.selectionEnd];
-  let dlg = document.getElementById('agenda');
-  if (!dlg) {
-    dlg = document.createElement('dialog');
-    dlg.id = 'agenda';
-    dlg.className = 'sheet agenda';
-    dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); }); // 外側をタップで閉じる
-    document.body.append(dlg);
-  }
-  const head = `<div class="sheet__grabber"></div><div class="agenda__head"><h2>${dateLabel(date)}の予定</h2><button class="btn btn--small btn--plain" id="agenda-close">閉じる</button></div>`;
-  dlg.innerHTML = `${head}<div class="agenda__body"><p class="small muted">読み込み中…</p></div>`;
-  dlg.showModal();
-  dlg.querySelector('#agenda-close').addEventListener('click', () => dlg.close());
-  const res = await sync.ask('calendar', { date }).catch(e => ({ ok: false, error: e.message }));
-  if (res.ok && !Array.isArray(res.events)) { res.ok = false; res.error = '日記ハブがまだ古い版です'; }
-  const body = dlg.querySelector('.agenda__body');
-  if (!body) return;
-  if (!res.ok) {
-    const hint = /calendar|権限|permission|古い版|unknown action/i.test(res.error || '') ? '(日記ハブを新しい版で出し直し、カレンダーの権限を許可してください)' : '';
-    body.innerHTML = `<p class="small muted">予定を読めませんでした: ${esc(res.error)}${hint}</p>`;
-    return;
-  }
-  if (!res.events.length) { body.innerHTML = '<p class="small muted">この日の予定はありません。</p>'; return; }
-  body.innerHTML = `<ul class="agenda__list">${res.events.map((ev, i) => `
-    <li><button type="button" class="agenda__ev" data-i="${i}">
-      <span class="agenda__bar" style="background:${/^#[0-9a-f]{3,8}$/i.test(ev.color) ? ev.color : 'var(--color-accent)'}"></span>
-      <span class="agenda__time">${ev.allDay ? '終日' : `${esc(ev.start)}<br>${esc(ev.end)}`}</span>
-      <span class="agenda__text"><b>${esc(ev.title)}</b><span class="small muted">${esc([ev.location, ev.calendar].filter(Boolean).join(' ・ '))}</span></span>
-      <span class="agenda__add" aria-hidden="true">＋</span>
-    </button></li>`).join('')}</ul>
-    <p class="list-section__footer">予定をタップすると、本文に「${esc(agendaLine(res.events[0]))}」のように差し込みます。</p>`;
-  body.querySelectorAll('[data-i]').forEach(b => b.addEventListener('click', () => {
-    const line = agendaLine(res.events[Number(b.dataset.i)]);
-    const v = textarea.value;
-    const [a, z] = pos;
-    const before = v.slice(0, a), after = v.slice(z);
-    const ins = `${before && !before.endsWith('\n') ? '\n' : ''}${line}${after.startsWith('\n') ? '' : '\n'}`;
-    textarea.value = before + ins + after;
-    pos[0] = pos[1] = before.length + ins.length;
-    form.text = textarea.value;
-    saveDraft();
-    b.classList.add('is-added');
-    toast('本文に差し込みました', 1400);
-  }));
+// 同じ日のまま描き直す(スクロール位置を保つ)。描き直しは同期的に終わるので、続けて focus してもキーボードが出る
+function rerenderDay(date) {
+  const y = scrollY;
+  renderDay(date);
+  scrollTo(0, y);
 }
 
-async function saveEntry() {
+function startCompose(date, id = null) {
+  if (!openCompose(date, id)) return;
+  rerenderDay(date);
+  const text = document.getElementById('text');
+  if (!text) return;
+  text.focus({ preventScroll: true });
+  const len = text.value.length;
+  if (!id) text.setSelectionRange(len, len);
+  document.getElementById('composer').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+}
+
+// 予定や縁泉の1行を、書いている本文のカーソル位置に差し込む。書く欄が閉じていれば開く
+function quoteLine(date, line) {
+  if (!state.compose) { if (!openCompose(date)) return; rerenderDay(date); }
+  const text = document.getElementById('text');
+  if (!text) return;
+  const r = insertLine(text.value, form.caret || [text.value.length, text.value.length], line);
+  text.value = form.text = r.text;
+  form.caret = [r.caret, r.caret];
+  saveDraft();
+  toast('本文に差し込みました', 1400);
+}
+
+async function saveEntry(date) {
   if (!form.text.trim()) { toast('本文を書いてください'); return; }
-  const e = makeEntry({ ...form, datetime: document.getElementById('dt').value || form.datetime }, db.uid);
+  const t = document.getElementById('c-time');
+  const time = t && /^\d{2}:\d{2}/.test(t.value) ? t.value.slice(0, 5) : form.datetime.slice(11, 16);
+  const e = makeEntry({ ...form, datetime: `${date}T${time}` }, db.uid);
   await db.put('entries', e);
   const i = state.entries.findIndex(x => x.id === e.id);
   if (i >= 0) state.entries[i] = e; else state.entries.push(e);
-  resetForm();
-  await db.setMeta('draft', null);
+  state.compose = null;
+  resetForm(date);
+  await clearDraft();
   state.justSaved = e.id;
   toast(sync.enabled() ? '綴じました(数秒後に同期します)' : '綴じました');
-  state.cal = null;
-  location.hash = `#day/${e.date}`;
+  rerenderDay(date);
 }
 
 async function removeEntry(id) {
@@ -293,9 +307,41 @@ async function removeEntry(id) {
   if (!e || !confirm('この記録を削除してもよろしいですか？')) return;
   await db.del('entries', id);
   state.entries = state.entries.filter(x => x.id !== id);
-  if (form.id === id) { resetForm(); await db.setMeta('draft', null); }
+  if (form.id === id) { state.compose = null; resetForm(e.date); await clearDraft(); }
   toast('削除しました');
-  if (location.hash === `#day/${e.date}`) renderDay(e.date); else location.hash = `#day/${e.date}`;
+  if (location.hash === `#day/${e.date}`) rerenderDay(e.date); else location.hash = `#day/${e.date}`;
+}
+
+// ---------- その日の予定(Googleカレンダー、日記ハブ経由で読むだけ) ----------
+function agendaLine(ev) {
+  return ev.allDay ? `終日 ${ev.title}` : `${ev.start}〜${ev.end} ${ev.title}`;
+}
+
+async function loadAgenda(date) {
+  const res = await side('calendar', date, state.calIds.length ? { ids: state.calIds } : {});
+  const box = document.getElementById('agenda-box');
+  if (!box) return;
+  if (res.ok && !Array.isArray(res.events)) { res.ok = false; res.error = '日記ハブがまだ古い版です'; }
+  if (!res.ok) {
+    const hint = /calendar|権限|permission|古い版|unknown action/i.test(res.error || '') ? '(日記ハブを新しい版で出し直し、カレンダーの権限を許可してください)' : '';
+    box.innerHTML = `<p class="small muted" style="margin:0">予定を読めませんでした: ${esc(res.error)}${hint}</p>`;
+    return;
+  }
+  const sum = document.querySelector('#fold-agenda summary small');
+  if (sum) sum.textContent = res.events.length ? `${res.events.length}件` : '';
+  if (!res.events.length) { box.innerHTML = '<p class="small muted" style="margin:0">この日の予定はありません。</p>'; return; }
+  box.innerHTML = `<ul class="agenda__list">${res.events.map((ev, i) => `
+    <li><button type="button" class="agenda__ev" data-ev="${i}" aria-label="${esc(agendaLine(ev))} を本文に差し込む">
+      <span class="agenda__bar" style="background:${/^#[0-9a-f]{3,8}$/i.test(ev.color) ? ev.color : 'var(--color-accent)'}"></span>
+      <span class="agenda__time">${ev.allDay ? '終日' : `${esc(ev.start)}<br>${esc(ev.end)}`}</span>
+      <span class="agenda__text"><b>${esc(ev.title)}</b><span class="small muted">${esc([ev.location, ev.calendar].filter(Boolean).join(' ・ '))}</span></span>
+      <span class="agenda__add" aria-hidden="true">＋</span>
+    </button></li>`).join('')}</ul>`;
+  box.querySelectorAll('[data-ev]').forEach(b => b.addEventListener('click', () => {
+    quoteLine(date, agendaLine(res.events[Number(b.dataset.ev)]));
+    const again = document.querySelector(`#agenda-box [data-ev="${b.dataset.ev}"]`);
+    if (again) again.classList.add('is-added');
+  }));
 }
 
 // ---------- 日記(カレンダーとその日) ----------
@@ -342,9 +388,19 @@ function bindCalendar(date) {
   $view.querySelectorAll('[data-shift]').forEach(b => b.addEventListener('click', () => {
     state.cal = shiftMonth(state.cal[0], state.cal[1], Number(b.dataset.shift));
     state.calMoved = true;
-    const y = scrollY;
-    renderDay(date).then(() => scrollTo(0, y));
+    rerenderDay(date);
   }));
+  // 週だけのときは、‹ › で7日ずつ日を送る
+  $view.querySelectorAll('[data-wshift]').forEach(b => b.addEventListener('click', () => {
+    location.hash = `#day/${shiftDay(date, Number(b.dataset.wshift))}`;
+  }));
+  const fold = $view.querySelector('[data-calview]');
+  if (fold) fold.addEventListener('click', () => {
+    state.calWeek = !state.calWeek;
+    db.setMeta('calWeek', state.calWeek);
+    state.cal = [Number(date.slice(0, 4)), Number(date.slice(5, 7))];
+    refreshCalendar();
+  });
 }
 
 function feelingsByDate() {
@@ -356,36 +412,42 @@ function feelingsByDate() {
   return map;
 }
 
-// カレンダーは「こころの色」のモザイク。記録のある日は、その日のFeelingの平均の色で塗る
+// カレンダー: 日付の下にその日のこころの色のバーと、読了本・映画の点。月の見出しをタップすると、選んだ日の週だけに畳める
 function calendarHtml(date) {
-  const [y, m] = state.cal;
+  const week = state.calWeek;
+  const [y, m] = week ? [Number(date.slice(0, 4)), Number(date.slice(5, 7))] : state.cal;
   const byDate = feelingsByDate();
   const t = today();
-  const marks = monthMarks(y, m);
-  const cells = monthCells(y, m).map(d => {
+  const marksOf = d => monthMarks(Number(d.slice(0, 4)), Number(d.slice(5, 7)));
+  const days = week ? weekCells(date) : monthCells(y, m);
+  const cells = days.map(d => {
     if (!d) return '<span class="cal__cell cal__cell--empty"></span>';
     const has = byDate.has(d);
     // 日付の下: その日のこころの色のバー(Feelingごとに区切る、最大3色)と、読了本・映画のドット
     const feel = has ? [...new Set(byDate.get(d))].slice(0, 3) : [];
     const bar = has ? `<span class="cal__bar">${feel.length ? feel.map(f => `<i style="${moodStyle(moodOf([f]))}"></i>`).join('') : '<i class="is-plain"></i>'}</span>` : '<span class="cal__bar"></span>';
+    const marks = marksOf(d);
     const book = marks.books.has(d), film = marks.films.has(d);
     const dots = `<span class="cal__dots">${book ? '<i class="dot dot--book"></i>' : ''}${film ? '<i class="dot dot--film"></i>' : ''}</span>`;
-    const cls = ['cal__cell', has ? 'has-record' : '', d === date ? 'is-selected' : '', d === t ? 'is-today' : '', d > t ? 'is-future' : ''].filter(Boolean).join(' ');
+    const other = week && Number(d.slice(5, 7)) !== m;
+    const cls = ['cal__cell', has ? 'has-record' : '', d === date ? 'is-selected' : '', d === t ? 'is-today' : '', d > t ? 'is-future' : '', other ? 'is-other' : ''].filter(Boolean).join(' ');
     const label = [dateLabel(d), has ? '日記あり' : '', book ? '読了本あり' : '', film ? '映画あり' : ''].filter(Boolean).join('・');
-    return `<a class="${cls}" href="#day/${d}" aria-label="${label}"${d === date ? ' aria-current="date"' : ''}><span class="cal__num">${Number(d.slice(8))}</span>${bar}${dots}</a>`;
+    const num = other && d.endsWith('-01') ? `${Number(d.slice(5, 7))}/1` : Number(d.slice(8));
+    return `<a class="${cls}" href="#day/${d}" aria-label="${label}"${d === date ? ' aria-current="date"' : ''}><span class="cal__num">${num}</span>${bar}${dots}</a>`;
   }).join('');
+  const nav = week
+    ? ['<button class="cal__nav" data-wshift="-7" aria-label="前の週">‹</button>', '<button class="cal__nav" data-wshift="7" aria-label="次の週">›</button>']
+    : ['<button class="cal__nav" data-shift="-12" aria-label="1年前">«</button><button class="cal__nav" data-shift="-1" aria-label="前の月">‹</button>', '<button class="cal__nav" data-shift="1" aria-label="次の月">›</button><button class="cal__nav" data-shift="12" aria-label="1年後">»</button>'];
   return `
-    <div class="card cal">
+    <div class="card cal${week ? ' cal--week' : ''}">
       <div class="cal__head">
-        <button class="cal__nav" data-shift="-12" aria-label="1年前">«</button>
-        <button class="cal__nav" data-shift="-1" aria-label="前の月">‹</button>
-        <span class="cal__label"><small>${y}</small>${m}月</span>
-        <button class="cal__nav" data-shift="1" aria-label="次の月">›</button>
-        <button class="cal__nav" data-shift="12" aria-label="1年後">»</button>
+        <span class="cal__navs">${nav[0]}</span>
+        <button type="button" class="cal__label" data-calview aria-label="${week ? '月ぜんぶを見る' : 'この週だけにする'}"><small>${y}</small>${m}月<span class="cal__fold" aria-hidden="true">${week ? '⌄' : '⌃'}</span></button>
+        <span class="cal__navs">${nav[1]}</span>
       </div>
       <div class="cal__grid cal__week" aria-hidden="true">${[...'日月火水木金土'].map(w => `<span>${w}</span>`).join('')}</div>
       <div class="cal__grid">${cells}</div>
-      <div class="cal__legend" aria-hidden="true"><span><i class="dot dot--book"></i>読了</span><span><i class="dot dot--film"></i>映画</span></div>
+      ${week ? '' : '<div class="cal__legend" aria-hidden="true"><span><i class="dot dot--book"></i>読了</span><span><i class="dot dot--film"></i>映画</span></div>'}
       ${state.marksNote ? `<p class="cal__note">${esc(state.marksNote)}</p>` : ''}
     </div>`;
 }
@@ -405,7 +467,7 @@ function entryHtml(e) {
         ${tags ? `<div class="tags">${tags}</div>` : ''}
         <div class="note__tools">
           <button class="btn btn--small btn--tinted" data-insight="${esc(e.id)}">知的アドバイス</button>
-          <a class="btn btn--small btn--plain" href="#write/${encodeURIComponent(e.id)}">直す</a>
+          <button class="btn btn--small btn--plain" data-edit="${esc(e.id)}">直す</button>
           <button class="btn btn--small btn--plain" data-del="${esc(e.id)}">消す</button>
         </div>
         <div class="ai-slot"></div>
@@ -419,6 +481,11 @@ async function renderDay(arg) {
   // 月送りボタンで動かしたときだけ、選んだ日と違う月を表示したままにする
   if (!state.cal || !state.calMoved) state.cal = [Number(date.slice(0, 4)), Number(date.slice(5, 7))];
   state.calMoved = false;
+  // 書く欄は開いた日だけ。書きかけのある日を開いたら、その続きを開く
+  if (state.compose && state.compose.date !== date) state.compose = null;
+  const dd = draftDate();
+  if (!state.compose && dd === date) openCompose(date, state.draft.id || null);
+  const composing = state.compose;
   setTitle('日記', { sub: daySub(date), back: !!state.found });
   const list = entriesOn(state.entries, date);
   const days = new Set(state.entries.map(e => e.date)).size;
@@ -431,11 +498,14 @@ async function renderDay(arg) {
       <div class="day-head__text">
         <h2>${dateLabel(date)}</h2>
         <p class="small">${words.length ? `こころ: ${words.map(esc).join('・')}` : list.length ? `${list.length}件の記録` : 'まだ白いページです'}</p>
-        <a class="btn btn--small btn--tinted" href="#write/${date}">＋ この日に書く</a>
+        ${composing ? '' : '<button type="button" class="btn btn--small btn--tinted" id="write-here">＋ この日に書く</button>'}
+        ${dd && dd !== date ? `<a class="draft-link small" href="#day/${dd}">${esc(dateLabel(dd).replace(/^\d+年/, ''))}の書きかけがあります ›</a>` : ''}
       </div>
       ${circumplex(feel)}
     </section>
-    ${list.length ? `<div class="thread">${list.map(entryHtml).join('')}</div>` : ''}
+    ${composing && !composing.id ? composerHtml() : ''}
+    ${list.length ? `<div class="thread">${list.map(e => composing && composing.id === e.id ? composerHtml() : entryHtml(e)).join('')}</div>` : ''}
+    <details class="fold side side--agenda" id="fold-agenda" open><summary>この日の予定<small></small></summary><div class="fold__body"><div class="card" id="agenda-box"><p class="small muted" style="margin:0">読み込み中…</p></div><p class="side__hint">予定や縁の ＋ をタップすると、書いている本文に差し込みます。</p></div></details>
     <details class="fold side side--ensen" id="fold-ensen" open><summary>この日の縁<small>縁泉</small></summary><div class="fold__body"><div class="card" id="ensen-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
     <details class="fold side side--books" id="fold-books" open><summary>この日に読み終えた本<small>読書ハブ</small></summary><div class="fold__body"><div class="card" id="books-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
     <details class="fold side side--films" id="fold-films" open><summary>この日に観た映画<small>映画ハブ</small></summary><div class="fold__body"><div class="card" id="films-box"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
@@ -454,18 +524,23 @@ async function renderDay(arg) {
   }
 
   bindCalendar(date);
+  if (composing) bindComposer(date);
+  const here = document.getElementById('write-here');
+  if (here) here.addEventListener('click', () => startCompose(date));
+  $view.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => startCompose(date, b.dataset.edit)));
   $view.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => removeEntry(b.dataset.del)));
   $view.querySelectorAll('[data-insight]').forEach(b => b.addEventListener('click', () => insight(b)));
   document.getElementById('news').addEventListener('click', () => news(date));
   if (state.slide) { slideIn(state.slide, '.day-head, .thread, .side'); state.slide = 0; }
+  loadAgenda(date);
   loadEnsen(date);
   loadBooks(date);
   loadFilms(date);
 }
 
-async function side(kind, date) {
-  const key = `${kind}:${date}`;
-  if (!state.side[key]) state.side[key] = sync.ask(kind, { date }).catch(e => { delete state.side[key]; return { ok: false, error: e.message }; });
+async function side(kind, date, extra = {}) {
+  const key = `${kind}:${date}:${JSON.stringify(extra)}`;
+  if (!state.side[key]) state.side[key] = sync.ask(kind, { date, ...extra }).catch(e => { delete state.side[key]; return { ok: false, error: e.message }; });
   return state.side[key];
 }
 
@@ -477,7 +552,8 @@ async function loadEnsen(date) {
   const parts = (res.events || []).map(ev => {
     const where = ev.place && ev.place !== ev.name ? ` <span class="muted small">・${esc(ev.place)}</span>` : '';
     const media = ev.media ? ` <a href="${esc(ev.media)}" target="_blank" rel="noopener" aria-label="写真">📷</a>` : '';
-    return `<div class="ev"><span class="ev__time">${esc(ev.time)}</span> <span class="muted small">${esc(ev.type)}</span> <b>${esc(ev.name)}</b> <span class="ev__verb">${esc(ev.verb)}</span>${where}${media}${ev.note ? `<div class="small muted">${esc(ev.note)}</div>` : ''}</div>`;
+    const line = [ev.time, `${ev.name || ''}${ev.verb || ''}`].filter(Boolean).join(' ');
+    return `<div class="ev"><div class="ev__main"><span class="ev__time">${esc(ev.time)}</span> <span class="muted small">${esc(ev.type)}</span> <b>${esc(ev.name)}</b> <span class="ev__verb">${esc(ev.verb)}</span>${where}${media}${ev.note ? `<div class="small muted">${esc(ev.note)}</div>` : ''}</div><button type="button" class="ev__add" data-q="${esc(line)}" aria-label="${esc(line)} を本文に差し込む">＋</button></div>`;
   });
   if ((res.homeMoves || []).length) parts.push(`<div class="small muted">🏠 ${res.homeMoves.map(m => `${esc(m.time)} ${esc(m.kind)}`).join(' / ')}</div>`);
   const traces = res.traces || [];
@@ -491,6 +567,12 @@ async function loadEnsen(date) {
   }
   box.innerHTML = (parts.length ? parts.join('') : '<p class="small muted" style="margin:0">この日の縁泉の記録はありません。</p>')
     + (res.uiUrl ? `<p class="small" style="margin:var(--space-2) 0 0"><a href="${esc(res.uiUrl)}" target="_blank" rel="noopener">縁泉を開く ↗</a></p>` : '');
+  box.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => {
+    const q = b.dataset.q;
+    quoteLine(date, q);
+    const again = document.querySelector(`#ensen-box [data-q="${CSS.escape(q)}"]`);
+    if (again) again.classList.add('is-added');
+  }));
 }
 
 async function loadBooks(date) {
@@ -776,6 +858,54 @@ function bindPalette() {
   });
 }
 
+// ---------- 設定: 予定を読むGoogleカレンダー ----------
+function calendarRows(list) {
+  const chosen = new Set(state.calIds);
+  const none = !chosen.size;
+  return list.map(c => {
+    const on = none ? c.shown : chosen.has(c.id);
+    const color = /^#[0-9a-f]{3,8}$/i.test(c.color) ? c.color : 'var(--color-accent)';
+    return `<label class="gcal__row"><input type="checkbox" data-cal="${esc(c.id)}"${on ? ' checked' : ''}><span class="gcal__sw" style="background:${color}"></span><span class="gcal__name">${esc(c.name)}${c.primary ? ' <small class="muted">メイン</small>' : ''}</span></label>`;
+  }).join('') || '<p class="small muted" style="margin:0">カレンダーが見つかりませんでした。</p>';
+}
+
+async function setCalIds(ids) {
+  state.calIds = ids;
+  await db.setMeta('calendarIds', ids);
+  for (const k of Object.keys(state.side)) if (k.startsWith('calendar:')) delete state.side[k];
+  const sum = document.getElementById('gcal-sum');
+  if (sum) sum.textContent = ids.length ? `${ids.length}個を表示` : 'Googleで表示中のもの';
+  const clear = document.getElementById('gcal-clear');
+  if (clear) clear.disabled = !ids.length;
+}
+
+async function bindCalendars() {
+  const box = document.getElementById('gcal-box');
+  const draw = list => {
+    box.innerHTML = calendarRows(list);
+    box.querySelectorAll('[data-cal]').forEach(cb => cb.addEventListener('change', () => {
+      // はじめて選ぶときは、いまのチェック(Googleで表示中のもの)から始める
+      setCalIds([...box.querySelectorAll('[data-cal]:checked')].map(x => x.dataset.cal));
+    }));
+  };
+  document.getElementById('gcal-clear').addEventListener('click', async () => {
+    await setCalIds([]);
+    draw((await db.getMeta('calendarList')) || []);
+  });
+  const cached = await db.getMeta('calendarList');
+  if (cached) draw(cached);
+  if (!sync.enabled()) return;
+  const res = await sync.ask('calendars').catch(e => ({ ok: false, error: e.message }));
+  if (!document.body.contains(box)) return;
+  if (res.ok && !Array.isArray(res.calendars)) { res.ok = false; res.error = '日記ハブがまだ古い版です'; }
+  if (!res.ok) {
+    if (!cached) box.innerHTML = `<p class="small muted" style="margin:0">一覧を読めませんでした: ${esc(res.error)}${/古い版|unknown action/.test(res.error || '') ? '(日記ハブを新しい版で出し直すと選べます)' : ''}</p>`;
+    return;
+  }
+  await db.setMeta('calendarList', res.calendars);
+  draw(res.calendars);
+}
+
 // ---------- 設定 ----------
 async function renderSettings() {
   setTab('settings');
@@ -795,6 +925,11 @@ async function renderSettings() {
       <p class="list-section__footer" id="sync-line"></p>
       <div class="actions">${syncUrl ? '<button class="btn btn--tinted" id="s-now">今すぐ同期</button><button class="btn btn--plain" id="s-off">同期をやめる</button>' : '<button class="btn btn--prominent" id="s-on">接続して同期する</button>'}</div>
       <p class="list-section__footer">いまの「日記の記録」スプレッドシートと同期します。GASの日記アプリで書いた分もここに届き、ここで書いた分もGASの日記アプリに出ます。準備の手順は<a href="https://github.com/tadamasa/diary-home/blob/main/hub/README.md" target="_blank" rel="noopener">こちら</a>。</p>
+    </div></details>
+    <details class="fold" id="gcal-fold"><summary>Googleカレンダー<small id="gcal-sum">${state.calIds.length ? `${state.calIds.length}個を表示` : 'Googleで表示中のもの'}</small></summary><div class="fold__body">
+      <div class="card gcal" id="gcal-box"><p class="small muted" style="margin:0">${sync.enabled() ? '読み込み中…' : '日記ハブにつなぐと選べます。'}</p></div>
+      <div class="actions"><button class="btn btn--plain" id="gcal-clear"${state.calIds.length ? '' : ' disabled'}>Googleでの表示どおりに戻す</button></div>
+      <p class="list-section__footer">選んだカレンダーの予定を、日記の「この日の予定」に出します。選ぶのは、この端末に覚えます。読むだけで、予定を書き換えることはありません。</p>
     </div></details>
     <details class="fold"><summary>タグを足す</summary><div class="fold__body">
       <div class="card">
@@ -861,6 +996,7 @@ async function renderSettings() {
     reopen();
   });
   bindPalette();
+  bindCalendars();
   document.querySelectorAll('[data-order]').forEach(b => b.addEventListener('click', async () => {
     state.tagOrder = b.dataset.order;
     await db.setMeta('tagOrder', state.tagOrder);
@@ -897,6 +1033,14 @@ async function renderSettings() {
 }
 
 // ---------- ルーティング ----------
+// 前の「記録」タブへのリンク(#write, #write/日付, #write/記録id)は、日記タブの書く欄に読み替える
+function legacyWrite(a) {
+  const e = a && !isDate(a) ? state.entries.find(x => x.id === a) : null;
+  const date = e ? e.date : isDate(a) ? a : today();
+  openCompose(date, e ? e.id : null);
+  location.replace(`#day/${date}`);
+}
+
 async function route() {
   const [name, arg] = location.hash.replace(/^#/, '').split('/');
   const a = arg ? decodeURIComponent(arg) : '';
@@ -908,7 +1052,8 @@ async function route() {
     case 'day': return renderDay(a);
     case 'search': return renderSearch(a);
     case 'settings': return renderSettings();
-    default: return renderWrite(a);
+    case 'write': return legacyWrite(a);
+    default: return renderDay(today());
   }
 }
 
@@ -936,6 +1081,7 @@ $view.addEventListener('touchend', e => {
   if (!dir) return;
   const cur = (location.hash.split('/')[1] || '');
   const date = isDate(cur) ? cur : today();
+  if (onCal && state.calWeek) { location.replace(`#day/${shiftDay(date, 7 * dir)}`); return; }
   if (onCal) {
     state.cal = shiftMonth(state.cal[0], state.cal[1], dir);
     state.calMoved = true;
@@ -983,6 +1129,10 @@ async function onRemoteChange() {
   // Safariのタブはホーム画面のアプリと保存場所が別で、使わないと7日で消える
   if (!(matchMedia('(display-mode: standalone)').matches || navigator.standalone)) document.getElementById('tab-warning').hidden = false;
   await sync.initSync({ onRemoteChange });
+  // 開いたときは今日のページで、書く欄を開いておく(前の「記録」タブの代わり)。書きかけがあればその日
+  if (!location.hash || location.hash === '#day' || location.hash === `#day/${today()}`) {
+    if (!draftDate()) openCompose(today());
+  }
   route();
   sync.schedule(300);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync.schedule(300); });

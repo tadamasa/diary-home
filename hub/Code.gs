@@ -40,7 +40,8 @@ function doGet() {
 
 // 受け取る: { token, action?, since, entries: [{id, mtime, deleted, data}], newTags: [{category, name}] }
 // 返す:     { ok, rev, more, entries: [{id, mtime, deleted, data}], tags, prompts }
-// action が 'ensen' / 'books' なら { date } を受けて、その日の縁泉・読了本を返す(読み取りのみ)
+// action が 'ensen' / 'books' / 'films' / 'calendar' なら { date } を受けて、その日の縁泉・読了本・映画・予定を返す(読み取りのみ)
+// action が 'calendars' なら、選べるカレンダーの一覧を返す
 function doPost(e) {
   let req;
   try { req = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, error: 'bad json' }); }
@@ -48,7 +49,8 @@ function doPost(e) {
   if (!token || req.token !== token) return json_({ ok: false, error: 'unauthorized' });
   if (req.action === 'ensen') return json_(getEnsenForDate(String(req.date || '')));
   if (req.action === 'books') return json_(getBooksForDate(String(req.date || '')));
-  if (req.action === 'calendar') return json_(getCalendarForDate(String(req.date || '')));
+  if (req.action === 'calendar') return json_(getCalendarForDate(String(req.date || ''), req.ids));
+  if (req.action === 'calendars') return json_(getCalendars());
   if (req.action === 'films') return json_(getFilmsForDate(String(req.date || '')));
   if (req.action === 'month') return json_(getMonthMarks(String(req.month || '')));
   if (req.action) return json_({ ok: false, error: 'unknown action' });
@@ -288,12 +290,15 @@ function json_(obj) {
 }
 
 // ========== Googleカレンダー：読み取り専用 ==========
-// その日の予定を、表示しているカレンダー(Googleカレンダーでチェックの入っているもの)から集める。
-// スクリプト プロパティ CALENDAR_IDS(カンマ区切り)があれば、そのカレンダーだけにする。
-function getCalendarForDate(dateStr) {
+// その日の予定を集める。どのカレンダーから読むかは、次の順で決める。
+//  1. アプリの設定で選んだもの(req.ids、端末に保存)
+//  2. スクリプト プロパティ CALENDAR_IDS(カンマ区切り)
+//  3. Googleカレンダーで表示中(チェックの入っている)もの
+function getCalendarForDate(dateStr, reqIds) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return { ok: false, error: 'bad date' };
   try {
-    const ids = String(PropertiesService.getScriptProperties().getProperty('CALENDAR_IDS') || '').split(',').map(function (x) { return x.trim(); }).filter(String);
+    let ids = Array.isArray(reqIds) ? reqIds.map(function (x) { return String(x).trim(); }).filter(String) : [];
+    if (!ids.length) ids = String(prop_('CALENDAR_IDS', '')).split(',').map(function (x) { return x.trim(); }).filter(String);
     const cals = ids.length
       ? ids.map(function (id) { return CalendarApp.getCalendarById(id); }).filter(Boolean)
       : CalendarApp.getAllCalendars().filter(function (c) { return !c.isHidden() && c.isSelected(); });
@@ -315,7 +320,30 @@ function getCalendarForDate(dateStr) {
       });
     });
     events.sort(function (a, b) { return (a.allDay ? '' : a.start) < (b.allDay ? '' : b.start) ? -1 : 1; });
-    return { ok: true, events: events };
+    return { ok: true, events: events, chosen: ids.length };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+// 自分が見られるカレンダーの一覧(設定で選ぶため)。主カレンダー → Googleで表示中 → 名前の順
+function getCalendars() {
+  try {
+    const list = CalendarApp.getAllCalendars().map(function (c) {
+      return {
+        id: c.getId(),
+        name: c.getName(),
+        color: c.getColor(),
+        shown: !c.isHidden() && c.isSelected(),
+        primary: typeof c.isMyPrimaryCalendar === 'function' ? !!c.isMyPrimaryCalendar() : false,
+      };
+    });
+    list.sort(function (a, b) {
+      if (a.primary !== b.primary) return a.primary ? -1 : 1;
+      if (a.shown !== b.shown) return a.shown ? -1 : 1;
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    });
+    return { ok: true, calendars: list };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { monthCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry, dateLabel } from '../js/diary.js';
+import { monthCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry, dateLabel, weekCells, insertLine } from '../js/diary.js';
 
 test('カレンダー: 2026年10月は木曜始まり', () => {
   const c = monthCells(2026, 10);
@@ -50,4 +50,16 @@ test('日送りとフリックの判定', async () => {
   assert.equal(swipeDir(-120, 80, 200), 0); // 斜めはスクロール扱い
   assert.equal(swipeDir(-40, 0, 200), 0);
   assert.equal(swipeDir(-120, 0, 900), 0);
+});
+
+test('週: 日曜はじまりで月をまたぐ', () => {
+  assert.deepEqual(weekCells('2026-11-02'), ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07']);
+  assert.deepEqual(weekCells('2026-10-01').slice(0, 5), ['2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01']);
+});
+
+test('本文への差し込み: カーソルの位置に1行、前後の改行を補う', () => {
+  assert.deepEqual(insertLine('', [0, 0], '10:00 定例'), { text: '10:00 定例\n', caret: 9 });
+  const r = insertLine('朝\n夜', [1, 1], '昼');
+  assert.equal(r.text, '朝\n昼\n夜');
+  assert.equal(insertLine('朝', [1, 1], '昼').text, '朝\n昼\n');
 });
