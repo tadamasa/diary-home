@@ -317,6 +317,16 @@ function agendaLine(ev) {
   return ev.allDay ? `終日 ${ev.title}` : `${ev.start}〜${ev.end} ${ev.title}`;
 }
 
+// その日のまわりの折り畳み: はじめは閉じておき、中身があれば開く。なければ閉じたまま「なし」と薄く出す
+function settle(kind, n) {
+  const fold = document.getElementById(`fold-${kind}`);
+  if (!fold) return;
+  const src = fold.dataset.src;
+  fold.classList.toggle('is-empty', n === 0);
+  fold.querySelector('summary small').textContent = n < 0 ? '読めませんでした' : n ? [`${n}件`, src].filter(Boolean).join(' ・ ') : 'なし';
+  fold.open = n > 0;
+}
+
 async function loadAgenda(date) {
   const res = await side('calendar', date, state.calIds.length ? { ids: state.calIds } : {});
   const box = document.getElementById('agenda-box');
@@ -325,10 +335,10 @@ async function loadAgenda(date) {
   if (!res.ok) {
     const hint = /calendar|権限|permission|古い版|unknown action/i.test(res.error || '') ? '(日記ハブを新しい版で出し直し、カレンダーの権限を許可してください)' : '';
     box.innerHTML = `<p class="small muted" style="margin:0">予定を読めませんでした: ${esc(res.error)}${hint}</p>`;
+    settle('agenda', -1);
     return;
   }
-  const sum = document.querySelector('#fold-agenda summary small');
-  if (sum) sum.textContent = res.events.length ? `${res.events.length}件` : '';
+  settle('agenda', res.events.length);
   if (!res.events.length) { box.innerHTML = '<p class="small muted" style="margin:0">この日の予定はありません。</p>'; return; }
   box.innerHTML = `<ul class="agenda__list">${res.events.map((ev, i) => `
     <li><button type="button" class="agenda__ev" data-ev="${i}" aria-label="${esc(agendaLine(ev))} を本文に差し込む">
@@ -505,10 +515,10 @@ async function renderDay(arg) {
     </section>
     ${composing && !composing.id ? composerHtml() : ''}
     ${list.length ? `<div class="thread">${list.map(e => composing && composing.id === e.id ? composerHtml() : entryHtml(e)).join('')}</div>` : ''}
-    <details class="fold side side--agenda" id="fold-agenda" open><summary>この日の予定<small></small></summary><div class="fold__body"><div class="card" id="agenda-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div><p class="side__hint">予定や縁の ＋ をタップすると、書いている本文に差し込みます。</p></div></details>
-    <details class="fold side side--ensen" id="fold-ensen" open><summary>この日の縁<small>縁泉</small></summary><div class="fold__body"><div class="card" id="ensen-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
-    <details class="fold side side--books" id="fold-books" open><summary>この日に読み終えた本<small>読書ハブ</small></summary><div class="fold__body"><div class="card" id="books-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
-    <details class="fold side side--films" id="fold-films" open><summary>この日に観た映画<small>映画ハブ</small></summary><div class="fold__body"><div class="card" id="films-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
+    <details class="fold side side--agenda" id="fold-agenda" data-src=""><summary>この日の予定<small>読み込み中</small></summary><div class="fold__body"><div class="card" id="agenda-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div><p class="side__hint">予定や縁の ＋ をタップすると、書いている本文に差し込みます。</p></div></details>
+    <details class="fold side side--ensen" id="fold-ensen" data-src="縁泉"><summary>この日の縁<small>読み込み中</small></summary><div class="fold__body"><div class="card" id="ensen-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
+    <details class="fold side side--books" id="fold-books" data-src="読書ハブ"><summary>この日に読み終えた本<small>読み込み中</small></summary><div class="fold__body"><div class="card" id="books-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
+    <details class="fold side side--films" id="fold-films" data-src="映画ハブ"><summary>この日に観た映画<small>読み込み中</small></summary><div class="fold__body"><div class="card" id="films-box" data-day="${date}"><p class="small muted" style="margin:0">読み込み中…</p></div></div></details>
     <details class="fold side side--news" id="fold-news"><summary>この日のニュース<small>Gemini</small></summary><div class="fold__body"><div class="card" id="news-box"><p class="small muted" style="margin:0">ボタンを押すとGeminiが検索します。送るのは日付だけです。</p></div><div class="actions"><button class="btn btn--tinted" id="news">主要ニュースを取得</button></div></div></details>
     <p class="list-section__footer">${days}日分の記録 ・ <span id="sync-line"></span></p>`;
   watchSync(document.getElementById('sync-line'));
@@ -548,7 +558,8 @@ async function loadEnsen(date) {
   const res = await side('ensen', date);
   const box = document.getElementById('ensen-box');
   if (!box || box.dataset.day !== date) return; // 返事が届く前に別の日へ移っていたら捨てる
-  if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">縁泉を読めませんでした: ${esc(res.error)}</p>`; return; }
+  if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">縁泉を読めませんでした: ${esc(res.error)}</p>`; settle('ensen', -1); return; }
+  settle('ensen', (res.events || []).length + (res.traces || []).length + (res.homeMoves || []).length);
   const parts = (res.events || []).map(ev => {
     const where = ev.place && ev.place !== ev.name ? ` <span class="muted small">・${esc(ev.place)}</span>` : '';
     const media = ev.media ? ` <a href="${esc(ev.media)}" target="_blank" rel="noopener" aria-label="写真">📷</a>` : '';
@@ -579,7 +590,8 @@ async function loadBooks(date) {
   const res = await side('books', date);
   const box = document.getElementById('books-box');
   if (!box || box.dataset.day !== date) return; // 返事が届く前に別の日へ移っていたら捨てる
-  if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">読書ハブを読めませんでした: ${esc(res.error)}</p>`; return; }
+  if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">読書ハブを読めませんでした: ${esc(res.error)}</p>`; settle('books', -1); return; }
+  settle('books', res.books.length);
   box.innerHTML = res.books.length ? res.books.map(b => `
     <a class="book" href="${esc(b.url)}" target="_blank" rel="noopener">
       <span class="cover cover--sm">${b.cover ? `<img src="${esc(b.cover)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</span>
@@ -592,7 +604,8 @@ async function loadFilms(date) {
   const box = document.getElementById('films-box');
   if (!box || box.dataset.day !== date) return; // 返事が届く前に別の日へ移っていたら捨てる
   if (res.ok && !Array.isArray(res.films)) { res.ok = false; res.error = '日記ハブを新しい版で出し直すと表示されます'; }
-  if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">映画ハブを読めませんでした: ${esc(res.error)}</p>`; return; }
+  if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">映画ハブを読めませんでした: ${esc(res.error)}</p>`; settle('films', -1); return; }
+  settle('films', res.films.length);
   box.innerHTML = res.films.length ? res.films.map(f => `
     <a class="book" href="${esc(f.url)}" target="_blank" rel="noopener">
       <span class="cover cover--sm">${f.poster ? `<img src="${esc(f.poster)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</span>

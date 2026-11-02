@@ -132,6 +132,8 @@ svg.ic { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-wid
 .side--agenda { --side: #0369a1; }
 @media (prefers-color-scheme: dark) { .side--ensen { --side: #fbbf24; } .side--books { --side: #a5b4fc; } .side--news { --side: #86efac; } .side--films { --side: #fda4af; } .side--agenda { --side: #7dd3fc; } }
 .side > summary small { color: var(--side); }
+.side.is-empty > summary { color: var(--color-label-secondary); font-weight: 500; min-height: 40px; }
+.side.is-empty > summary small { color: var(--color-label-tertiary, var(--color-label-secondary)); }
 .side .card { background-color: color-mix(in srgb, var(--side) 7%, var(--bg-grouped-secondary)); }
 .ev { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-1) 0; }
 .ev__main { flex: 1; min-width: 0; }
