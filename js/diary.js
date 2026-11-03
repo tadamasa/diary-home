@@ -110,3 +110,14 @@ export function insertLine(text, [a, z], line) {
   const ins = `${before && !before.endsWith('\n') ? '\n' : ''}${line}${after.startsWith('\n') ? '' : '\n'}`;
   return { text: before + ins + after, caret: before.length + ins.length };
 }
+
+// 「この日の縁」に出す縁泉の行。縁泉が毎晩追記する作品(source が reading / movie)は、
+// 本・映画の欄が読めたときはそちらに任せて出さない(同じ本・映画が2回出ないように)。
+// 本・映画の欄が読めなかったときは残す(その日に読んだ・観た事実が消えないように)。
+export const WORK_SOURCES = { reading: 'books', movie: 'films' };
+export function ensenEventsShown(events, okBy = {}) {
+  return (events || []).filter(ev => {
+    const side = WORK_SOURCES[String(ev && ev.source || '').trim().toLowerCase()];
+    return !side || !okBy[side];
+  });
+}

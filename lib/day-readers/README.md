@@ -17,8 +17,7 @@
 | 使う側 | 使う関数 | 追加した版 |
 |---|---|---|
 | 日記ハブ(この repo の `hub/Code.gs`) | ensenForDate, booksForDate, filmsForDate, monthMarks | 1(hub/appsscript.json に記載) |
-| 縁泉ハブ(tadamasa/ensen-home) | diaryForDate, booksForDate, filmsForDate, monthMarks | (これから) |
-| 日記v2(このMacの diary_gas_v2) | ensenForDate, booksForDate | (これから) |
+| 縁泉ハブ(tadamasa/ensen-home) | diaryForDate, booksForDate, filmsForDate, monthMarks | 1(2026-11-02、ensen-home PR #2) |
 
 ## 関数
 

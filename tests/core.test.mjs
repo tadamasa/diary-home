@@ -63,3 +63,18 @@ test('本文への差し込み: カーソルの位置に1行、前後の改行�
   assert.equal(r.text, '朝\n昼\n夜');
   assert.equal(insertLine('朝', [1, 1], '昼').text, '朝\n昼\n');
 });
+
+test('縁泉の作品(reading/movie)は本・映画の欄が読めたときだけ出さない', async () => {
+  const { ensenEventsShown } = await import('../js/diary.js');
+  const evs = [
+    { name: '渋谷', source: 'swarm' },
+    { name: '現実はいつも対話から生まれる', source: 'reading' },
+    { name: 'シャドウズ・エッジ', source: 'movie' },
+    { name: '友だち', source: '' },
+  ];
+  assert.deepEqual(ensenEventsShown(evs, { books: true, films: true }).map(e => e.name), ['渋谷', '友だち']);
+  assert.deepEqual(ensenEventsShown(evs, { books: false, films: true }).map(e => e.name), ['渋谷', '現実はいつも対話から生まれる', '友だち']);
+  assert.deepEqual(ensenEventsShown(evs, { books: true, films: false }).map(e => e.name), ['渋谷', 'シャドウズ・エッジ', '友だち']);
+  assert.deepEqual(ensenEventsShown(evs).map(e => e.name), evs.map(e => e.name));
+  assert.deepEqual(ensenEventsShown(undefined, { books: true }), []);
+});
