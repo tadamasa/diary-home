@@ -4,7 +4,7 @@ import * as gemini from './gemini.js';
 import { exportData, importData } from './backup.js';
 import { moodOf, moodStyle, skyOf, SKY_LABEL, moonAge, moonName, moonPath, affectOf, setCustomAffect, clampAffect, hueOf, sortTags } from './mood.js';
 import { searchEntries, snippetHtml, markHtml, timeline, coFeelings, encodeSearch, decodeSearch } from './search.js';
-import { esc, today, nowTime, isDate, dateLabel, monthCells, weekCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry, shiftDay, swipeDir, insertLine } from './diary.js';
+import { esc, today, nowTime, isDate, dateLabel, monthCells, weekCells, shiftMonth, splitTags, entriesOn, tagChoices, buildPrompt, renderAnswer, makeEntry, shiftDay, swipeDir, insertLine, ensenEventsShown } from './diary.js';
 
 // ---------- 状態 ----------
 const state = {
@@ -555,12 +555,15 @@ async function side(kind, date, extra = {}) {
 }
 
 async function loadEnsen(date) {
-  const res = await side('ensen', date);
+  // 本・映画の欄と同じ問い合わせを待つ(side は同じ日の問い合わせを使い回すので、ハブへは1回ずつ)
+  const [res, books, films] = await Promise.all([side('ensen', date), side('books', date), side('films', date)]);
   const box = document.getElementById('ensen-box');
   if (!box || box.dataset.day !== date) return; // 返事が届く前に別の日へ移っていたら捨てる
   if (!res.ok) { box.innerHTML = `<p class="small muted" style="margin:0">縁泉を読めませんでした: ${esc(res.error)}</p>`; settle('ensen', -1); return; }
-  settle('ensen', (res.events || []).length + (res.traces || []).length + (res.homeMoves || []).length);
-  const parts = (res.events || []).map(ev => {
+  // 縁泉が追記した本・映画は、本・映画の欄が読めたときはそちらに任せる(読めなかったときは残す)
+  const events = ensenEventsShown(res.events, { books: !!(books.ok && Array.isArray(books.books)), films: !!(films.ok && Array.isArray(films.films)) });
+  settle('ensen', events.length + (res.traces || []).length + (res.homeMoves || []).length);
+  const parts = events.map(ev => {
     const where = ev.place && ev.place !== ev.name ? ` <span class="muted small">・${esc(ev.place)}</span>` : '';
     const media = ev.media ? ` <a href="${esc(ev.media)}" target="_blank" rel="noopener" aria-label="写真">📷</a>` : '';
     const line = [ev.time, `${ev.name || ''}${ev.verb || ''}`].filter(Boolean).join(' ');
